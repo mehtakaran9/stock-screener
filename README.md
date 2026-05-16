@@ -6,7 +6,7 @@ A real-time technical stock screener that identifies momentum breakout setups ac
 
 ## What it does
 
-On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies six filters in sequence:
+On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies eleven filters in sequence:
 
 | Filter | Threshold | Rationale |
 |--------|-----------|-----------|
@@ -25,8 +25,34 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 Tickers that pass all eleven filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
 
 Each result also includes computed swing trade levels:
-- **Entry levels**: ① breakout now (current price), ② EMA8 pullback, ③ BB midline (SMA20) deep dip
-- **Stop levels**: ① 1×ATR below entry, ② 0.5×ATR below EMA8, ③ 0.5×ATR below SMA50 (trend break)
+
+| # | Entry | Calculation | Stop | Calculation |
+|---|-------|-------------|------|-------------|
+| ① | Breakout now | current price | Tight | price − 1.0 × ATR14 |
+| ② | EMA8 pullback | EMA8 value | EMA8 undercut | EMA8 − 0.5 × ATR14 |
+| ③ | BB midline dip | BB middle (SMA20) | Trend break | SMA50 − 0.5 × ATR14 |
+
+Risk per share for each scenario is shown in the expanded row of the web UI table.
+
+### API output fields
+
+Every matched stock returns the following fields from `/api/scan`:
+
+| Field | Description | Filter? |
+|-------|-------------|---------|
+| `ticker`, `exchange` | Symbol and listing exchange | — |
+| `price`, `change` | Last price; day change % | — |
+| `volume` | Day volume (shares) | ≥ 500K |
+| `vol_ratio` | Volume ÷ 20-day avg volume | informational |
+| `market_cap` | Market capitalisation | > $1B |
+| `rsi` | RSI(14) | 50 – 70 |
+| `macd`, `macd_signal`, `macd_hist` | MACD line, signal, histogram | hist > 0 |
+| `ema8`, `ema50`, `ema200` | Exponential moving averages | price > EMA50, price > EMA200 |
+| `sma50`, `sma200` | Simple moving averages | price > 75% of SMA200 |
+| `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | price < BB upper |
+| `atr14` | Average True Range (14) | — |
+| `entry1/2/3` | Three swing entry price levels | — |
+| `stop1/2/3` | Corresponding stop loss levels | — |
 
 ---
 
@@ -61,7 +87,7 @@ Each result also includes computed swing trade levels:
 ```
 stock-screener/
 ├── backend/
-│   ├── main.py            # FastAPI app — /api/scan (SSE), /api/filters, /api/history/{ticker}
+│   ├── main.py            # FastAPI app — /api/scan (SSE), /api/filters (active filter tags), /api/history/{ticker}
 │   ├── scanner.py         # Core screening engine (yfinance + pandas-ta-classic)
 │   ├── scheduler.py       # APScheduler wrapper (local dev only)
 │   ├── run_scan.py        # Standalone entrypoint for GitHub Actions
@@ -194,6 +220,8 @@ Scan results are delivered as a dark-themed HTML email that mirrors the web UI:
 - **Volume** and **Market Cap** use compact notation (`52.30M`, `3.29T`)
 - Columns: Ticker · Price · Change % · Volume · Market Cap · EMA8 · SMA200
 - When `full_scan=false, send_email=true` is triggered, an amber banner labels the data as a test
+
+The web UI exposes all output fields (see table above) and adds an expandable row per ticker showing MA chips, Bollinger Band levels, and the full swing trade levels table. The email intentionally sends only the 7 summary columns.
 
 ---
 
