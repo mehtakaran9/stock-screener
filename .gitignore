@@ -4,3 +4,17 @@ venv/
 .env
 dist/
 *.pyc
+
+# Claude Code workspace
+.claude/
+
+# Logs
+*.log
+
+# Test & coverage artefacts
+.coverage
+.pytest_cache/
+
+# Python eggs / builds
+*.egg-info/
+build/
