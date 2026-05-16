@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+yfinance
+pandas
+pandas-ta-classic
+python-multipart
+httpx
+pytest
+pytest-asyncio
+yahooquery
