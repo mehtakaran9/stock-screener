@@ -3,7 +3,12 @@
 Standalone scan runner for GitHub Actions cron.
 Usage: python -m backend.run_scan
 Required env vars: EMAIL_SMTP_HOST, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO
-Optional env vars: EMAIL_SMTP_PORT (default 587)
+Optional env vars:
+  EMAIL_SMTP_PORT  default 587
+  FULL_SCAN        'true' = run scan + skip trading day check (manual trigger)
+                   'false' = skip scan
+                   ''      = scheduled run (apply trading day check)
+  SEND_EMAIL       'false' = suppress email; anything else = send if results found
 """
 import asyncio
 import logging
@@ -29,20 +34,26 @@ def is_nyse_trading_day() -> bool:
 
 
 async def main() -> int:
-    email_only = os.getenv("EMAIL_ONLY", "").lower() == "true"
-    test_mode = os.getenv("TEST_EMAIL", "").lower() == "true"
+    # Empty string means scheduled run — treat as full_scan=true + send_email=true
+    full_scan_input = os.getenv("FULL_SCAN", "").lower()
+    send_email = os.getenv("SEND_EMAIL", "").lower() != "false"  # default true
 
-    if email_only:
-        logger.info("Email-only mode — skipping scan, sending test email.")
-        send_scan_results_email([])
+    if full_scan_input == "false":
+        if send_email:
+            logger.info("Scan skipped — sending dummy email.")
+            send_scan_results_email([])
+        else:
+            logger.info("Scan skipped, email disabled — nothing to do.")
         return 0
 
-    if not test_mode and not is_nyse_trading_day():
+    # full_scan=true (manual trigger) skips trading day check; scheduled runs don't
+    is_manual = full_scan_input == "true"
+    if not is_manual and not is_nyse_trading_day():
         logger.info("Not a NYSE trading day — skipping scan.")
         return 0
 
-    if test_mode:
-        logger.info("Test mode — skipping trading day check, running full scan.")
+    if is_manual:
+        logger.info("Manual trigger — skipping trading day check, running full scan.")
 
     tickers, is_full = get_full_market_tickers()
     if not is_full:
@@ -59,13 +70,13 @@ async def main() -> int:
 
     logger.info(f"Scan complete. {len(results)} matches found.")
 
-    if results:
-        send_scan_results_email(results)
-    elif test_mode:
-        logger.info("No matches found, but sending email anyway (test mode).")
-        send_scan_results_email([])
+    if send_email:
+        if results:
+            send_scan_results_email(results)
+        else:
+            logger.info("No matches — skipping email.")
     else:
-        logger.info("No matches — skipping email.")
+        logger.info(f"Email disabled — {len(results)} matches found but not sent.")
 
     return 0
 

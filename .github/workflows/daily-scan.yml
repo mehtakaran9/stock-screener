@@ -6,18 +6,18 @@ on:
     - cron: '0 17 * * 1-5'   # 12:00 PM EST (Nov–Mar, UTC-5)
   workflow_dispatch:           # Allow manual trigger from GitHub UI
     inputs:
-      test_email:
-        description: 'Run the full scan and send results email'
+      full_scan:
+        description: 'Run the full market scan'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
-        options: ['false', 'true']
-      email_only:
-        description: 'Skip scan — send a test email immediately (verifies SMTP credentials)'
+        options: ['true', 'false']
+      send_email:
+        description: 'Send results email (if full_scan is false, sends a dummy email)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
-        options: ['false', 'true']
+        options: ['true', 'false']
 
 # Prevent duplicate concurrent runs (e.g. during DST transition weeks)
 concurrency:
@@ -51,6 +51,6 @@ jobs:
           EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO:        ${{ secrets.EMAIL_TO }}
           PYTHONPATH:      ${{ github.workspace }}
-          TEST_EMAIL:      ${{ github.event.inputs.test_email }}
-          EMAIL_ONLY:      ${{ github.event.inputs.email_only }}
+          FULL_SCAN:       ${{ github.event.inputs.full_scan }}
+          SEND_EMAIL:      ${{ github.event.inputs.send_email }}
         run: python -m backend.run_scan
