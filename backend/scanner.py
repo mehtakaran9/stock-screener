@@ -138,7 +138,7 @@ async def screen_stocks(tickers: List[str]):
                                 yf.download, chunk,
                                 period=period, group_by='ticker', progress=False, threads=False
                             ),
-                            timeout=120.0
+                            timeout=18000.0  # 5 hours
                         )
                         if downloaded_data is None or downloaded_data.empty:
                             raise ValueError("Empty data returned")
@@ -153,7 +153,10 @@ async def screen_stocks(tickers: List[str]):
                         else:
                             raise
 
-                market_caps = await asyncio.to_thread(_fetch_market_caps_bulk, chunk)
+                market_caps = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_market_caps_bulk, chunk),
+                    timeout=18000.0  # 5 hours
+                )
 
                 for ticker in chunk:
                     processed_count += 1
