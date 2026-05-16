@@ -73,57 +73,21 @@ Every matched stock returns the following fields from `/api/scan`:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  GitHub Actions (free)                  │
-│  Cron: 12 PM ET Mon–Fri  ·  workflow_dispatch (manual) │
-│  backend/run_scan.py → scanner.py → notifications.py   │
-└───────────────────┬─────────────────────────────────────┘
-                    │ email via SMTP
-                    ▼
-              Gmail / any SMTP
+```mermaid
+flowchart TD
+    GHA["**GitHub Actions** _(free)_\nCron: 12 PM ET Mon–Fri · workflow_dispatch\nrun_scan.py → scanner.py → notifications.py"]
+    SMTP["Gmail / any SMTP"]
+    Vercel["**Vercel** _(free)_\nReact + Vite\nfrontend/"]
+    Render["**Render.com** _(free)_\nFastAPI + Uvicorn\nbackend/main.py"]
 
-┌──────────────────┐        ┌──────────────────────────┐
-│  Vercel (free)   │◄──SSE──│   Render.com (free)      │
-│  React + Vite    │        │   FastAPI + Uvicorn       │
-│  frontend/       │        │   backend/main.py         │
-└──────────────────┘        └──────────────────────────┘
+    GHA -->|email via SMTP| SMTP
+    Vercel <-->|SSE| Render
 ```
 
 - **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks.
 - **Render.com** hosts the FastAPI backend on the free tier (512 MB RAM; sleeps after 15 min inactivity).
 - **Vercel** hosts the static React build. `VITE_API_URL` points to the Render service.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
-
----
-
-## Project structure
-
-```
-stock-screener/
-├── backend/
-│   ├── main.py            # FastAPI app — /api/scan (SSE), /api/filters (active filter tags), /api/history/{ticker}
-│   ├── scanner.py         # Core screening engine (yfinance + pandas-ta-classic)
-│   ├── run_scan.py        # Standalone entrypoint for GitHub Actions
-│   ├── notifications.py   # Dark-themed HTML email builder + SMTP sender
-│   ├── requirements.txt
-│   ├── test_scanner.py    # pytest unit tests for scanner
-│   └── test_main.py       # pytest unit tests for API
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx             # Root component — SSE consumer, scan controls, progress bar
-│   │   ├── App.css             # Dark-theme design tokens + layout
-│   │   └── components/
-│   │       └── StockTable.tsx  # Results table with Google Finance ticker links
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.ts
-├── .github/
-│   └── workflows/
-│       └── daily-scan.yml  # Cron + manual dispatch workflow
-├── render.yaml             # Render.com deploy blueprint
-└── AGENTS.md               # AI agent onboarding notes
-```
 
 ---
 
@@ -163,60 +127,7 @@ python3 -m pytest backend/ -v
 
 ---
 
-## Cloud deployment
-
-### GitHub Actions — daily scan + email
-
-#### Required secrets
-
-Go to **Settings → Secrets and variables → Actions → Repository secrets** and add:
-
-| Secret | Example |
-|--------|---------|
-| `EMAIL_SMTP_HOST` | `smtp.gmail.com` |
-| `EMAIL_SMTP_PORT` | `587` |
-| `EMAIL_USER` | `you@gmail.com` |
-| `EMAIL_PASSWORD` | 16-char Gmail App Password ¹ |
-| `EMAIL_TO` | `recipient@example.com` |
-
-¹ Gmail requires an **App Password** (not your account password) when 2-Step Verification is enabled.  
-Create one at **myaccount.google.com → Security → App Passwords**.
-
-#### Manual workflow dispatch options
-
-Trigger a run from **Actions → Daily Market Scan → Run workflow** and choose:
-
-| Input | `true` | `false` |
-|-------|--------|---------|
-| `full_scan` | Run the full scan, skip trading-day check | Skip scan |
-| `send_email` | Send results email | Suppress email |
-
-**Testing SMTP credentials:** Set `full_scan=false, send_email=true`. This skips the scan entirely and sends a styled test email with sample data in seconds — useful for verifying SMTP config without waiting for a full scan.
-
----
-
-### Render.com — FastAPI backend
-
-1. Connect your GitHub repo in the Render dashboard (or use the included `render.yaml` blueprint).
-2. Set these environment variables in the Render dashboard:
-
-| Variable | Value |
-|----------|-------|
-| `ALLOWED_ORIGINS` | `https://your-app.vercel.app` |
-| `PYTHONPATH` | `/opt/render/project/src` |
-
----
-
-### Vercel — React frontend
-
-1. Import the repo in Vercel; set the **Root Directory** to `frontend/`.
-2. Add one environment variable:
-
-| Variable | Value |
-|----------|-------|
-| `VITE_API_URL` | `https://your-service.onrender.com` |
-
----
+> For cloud deployment instructions see [DEPLOY.md](DEPLOY.md).
 
 ## Email format
 
