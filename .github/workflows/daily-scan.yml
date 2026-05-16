@@ -12,6 +12,12 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
+      email_only:
+        description: 'Skip scan — send a test email immediately (verifies SMTP credentials)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 # Prevent duplicate concurrent runs (e.g. during DST transition weeks)
 concurrency:
@@ -46,4 +52,5 @@ jobs:
           EMAIL_TO:        ${{ secrets.EMAIL_TO }}
           PYTHONPATH:      ${{ github.workspace }}
           TEST_EMAIL:      ${{ github.event.inputs.test_email }}
+          EMAIL_ONLY:      ${{ github.event.inputs.email_only }}
         run: python -m backend.run_scan

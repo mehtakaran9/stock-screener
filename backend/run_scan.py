@@ -29,7 +29,13 @@ def is_nyse_trading_day() -> bool:
 
 
 async def main() -> int:
+    email_only = os.getenv("EMAIL_ONLY", "").lower() == "true"
     test_mode = os.getenv("TEST_EMAIL", "").lower() == "true"
+
+    if email_only:
+        logger.info("Email-only mode — skipping scan, sending test email.")
+        send_scan_results_email([])
+        return 0
 
     if not test_mode and not is_nyse_trading_day():
         logger.info("Not a NYSE trading day — skipping scan.")
