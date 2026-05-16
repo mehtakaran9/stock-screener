@@ -8,7 +8,7 @@ httpx==0.28.1
 requests==2.32.4
 rich==15.0.0
 pandas-market-calendars==4.6.0
-pytz==2025.2
+pytz==2026.2
 
 # dev/test only
 pytest==9.0.3
