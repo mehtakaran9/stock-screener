@@ -21,6 +21,7 @@ backend/recipients.txt
 .coverage
 .coverage.*
 .pytest_cache/
+frontend/coverage/
 
 # Python eggs / builds
 *.egg-info/
