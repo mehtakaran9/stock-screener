@@ -46,7 +46,7 @@ jobs:
       - name: Run tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m pytest backend/ -v
+        run: python -m pytest backend/ -v --cov --cov-report=term-missing
 
       - name: Write recipients file
         env:
