@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Verify approver is admin
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
