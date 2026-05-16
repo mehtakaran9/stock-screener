@@ -16,6 +16,7 @@ backend/scan_cache.json
 
 # Test & coverage artefacts
 .coverage
+.coverage.*
 .pytest_cache/
 
 # Python eggs / builds
