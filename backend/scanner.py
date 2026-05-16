@@ -240,7 +240,7 @@ async def screen_stocks(tickers: List[str]):
 
                         # RSI-14
                         rsi_series = ta.rsi(df['Close'], length=14)
-                        curr_rsi = round(float(rsi_series.iloc[-1]), 1) if rsi_series is not None and not rsi_series.empty else 50.0
+                        curr_rsi = round(float(rsi_series.iloc[-1]), 1) if rsi_series is not None and not rsi_series.empty else 0.0
 
                         # MACD (12,26,9)
                         macd_result = ta.macd(df['Close'])
@@ -267,8 +267,12 @@ async def screen_stocks(tickers: List[str]):
                         # EMA50 / EMA200
                         ema50_series = ta.ema(df['Close'], length=50)
                         ema200_series = ta.ema(df['Close'], length=200)
-                        curr_ema50 = round(float(ema50_series.iloc[-1]), 2) if ema50_series is not None and not ema50_series.empty else 0.0
-                        curr_ema200 = round(float(ema200_series.iloc[-1]), 2) if ema200_series is not None and not ema200_series.empty else 0.0
+                        if ema50_series is None or ema50_series.empty:
+                            continue
+                        if ema200_series is None or ema200_series.empty:
+                            continue
+                        curr_ema50 = round(float(ema50_series.iloc[-1]), 2)
+                        curr_ema200 = round(float(ema200_series.iloc[-1]), 2)
 
                         # Filter: price > EMA50 — medium-term uptrend
                         if price <= curr_ema50:
@@ -348,7 +352,7 @@ async def screen_stocks(tickers: List[str]):
                             "stop2": stop2,
                             "stop3": stop3,
                         }
-                        logger.info(f"[bold green]Found breakout:[/bold green] {ticker} at ${result['price']} ({result['change']}%)")
+                        logger.info(f"Found breakout: {ticker} at ${result['price']} ({result['change']}%)")
                         yield result
 
                     except Exception as e:

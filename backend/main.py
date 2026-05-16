@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Path
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
@@ -13,9 +13,6 @@ from rich.logging import RichHandler
 # Suppress noisy multiprocessing warnings at shutdown
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing")
 from backend.scanner import get_full_market_tickers, screen_stocks, get_active_filters
-import yfinance as yf
-import pandas_ta_classic as ta
-import pandas as pd
 
 # Configure logging with Rich
 logging.basicConfig(
@@ -37,7 +34,7 @@ CACHE_TTL = 600  # 10 minutes
 
 
 def _load_cache() -> tuple[list, int] | None:
-    """Return (results, total) from a valid cache file, then delete it. Returns None on miss/expiry."""
+    """Return (results, total) from a valid cache file. Returns None on miss/expiry."""
     if not CACHE_FILE.exists():
         return None
     try:
@@ -46,7 +43,6 @@ def _load_cache() -> tuple[list, int] | None:
         if time.time() - data["timestamp"] > CACHE_TTL:
             CACHE_FILE.unlink(missing_ok=True)
             return None
-        CACHE_FILE.unlink(missing_ok=True)
         return data["results"], data["total"]
     except Exception as e:
         logger.warning(f"Cache read error: {e}")
@@ -116,47 +112,6 @@ async def scan_market():
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-@app.get("/api/history/{ticker}")
-async def get_history(ticker: str = Path(..., pattern=r"^[A-Z0-9\-]{1,10}$")):
-    """
-    Returns historical OHLCV data with 8EMA and 200SMA for charting.
-    """
-    df = await asyncio.to_thread(yf.download, ticker, period="2y", progress=False)
-    if df is None or df.empty:
-        raise HTTPException(status_code=404, detail=f"No data found for ticker '{ticker}'")
-
-    if len(df) < 200:
-        raise HTTPException(status_code=422, detail=f"Insufficient data for '{ticker}' (need 200 days for SMA200)")
-
-    df['EMA8'] = ta.ema(df['Close'], length=8)
-    df['SMA200'] = ta.sma(df['Close'], length=200)
-
-    df = df.reset_index()
-    # First column after reset_index is always the date column (index.name from yfinance is 'Date')
-    date_col = df.columns[0]
-
-    history = []
-    for _, row in df.iterrows():
-        ts = row[date_col]
-        if hasattr(ts, 'timestamp'):
-            timestamp = int(ts.timestamp())
-        else:
-            try:
-                timestamp = int(pd.Timestamp(ts).timestamp())
-            except Exception:
-                continue
-
-        history.append({
-            "time": timestamp,
-            "open": float(row['Open']),
-            "high": float(row['High']),
-            "low": float(row['Low']),
-            "close": float(row['Close']),
-            "ema8": float(row['EMA8']) if not pd.isna(row['EMA8']) else None,
-            "sma200": float(row['SMA200']) if not pd.isna(row['SMA200']) else None,
-        })
-
-    return history
 
 if __name__ == "__main__":
     import uvicorn

@@ -75,13 +75,13 @@ Every matched stock returns the following fields from `/api/scan`:
 
 ```mermaid
 flowchart TD
-    GHA["**GitHub Actions** _(free)_\nCron: 12 PM ET Mon–Fri · workflow_dispatch\nrun_scan.py → scanner.py → notifications.py"]
+    GHA["GitHub Actions (free)\nCron: 12 PM ET Mon-Fri · workflow_dispatch\nrun_scan.py → scanner.py → notifications.py"]
     SMTP["Gmail / any SMTP"]
-    Vercel["**Vercel** _(free)_\nReact + Vite\nfrontend/"]
-    Render["**Render.com** _(free)_\nFastAPI + Uvicorn\nbackend/main.py"]
+    Vercel["Vercel (free)\nReact + Vite — frontend/"]
+    Render["Render.com (free)\nFastAPI + Uvicorn — backend/main.py"]
 
     GHA -->|email via SMTP| SMTP
-    Vercel <-->|SSE| Render
+    Render -->|SSE stream| Vercel
 ```
 
 - **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks.

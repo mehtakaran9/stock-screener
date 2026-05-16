@@ -1,38 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { TrendingUp, Play, Loader2, RotateCcw } from 'lucide-react';
 import StockTable from './components/StockTable';
+import type { Stock } from './types';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
-
-interface Stock {
-  ticker: string;
-  exchange: string;
-  price: number;
-  change: number;
-  volume: number;
-  vol_ratio: number;
-  market_cap: number;
-  rsi: number;
-  macd: number;
-  macd_signal: number;
-  macd_hist: number;
-  ema8: number;
-  ema50: number;
-  ema200: number;
-  sma50: number;
-  sma200: number;
-  bb_upper: number;
-  bb_middle: number;
-  bb_lower: number;
-  atr14: number;
-  entry1: number;
-  entry2: number;
-  entry3: number;
-  stop1: number;
-  stop2: number;
-  stop3: number;
-}
 
 interface ScanProgress {
   total: number;
@@ -47,6 +19,7 @@ function App() {
   const [scanComplete, setScanComplete] = useState<{ total: number } | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [scanWarning, setScanWarning] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -75,6 +48,7 @@ function App() {
     setIsScanning(true);
     setProgress(null);
     setScanComplete(null);
+    setScanWarning(null);
     setStartTime(Date.now());
 
     try {
@@ -91,7 +65,9 @@ function App() {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.status === 'progress') {
+        if (data.status === 'warning') {
+          setScanWarning(data.message);
+        } else if (data.status === 'progress') {
           setProgress({ total: data.total, current: data.current, ticker: data.ticker });
         } else if (data.status === 'result') {
           setStocks((prev) => {
@@ -187,6 +163,10 @@ function App() {
           <StockTable stocks={stocks} />
         </div>
       </main>
+
+      {scanWarning && (
+        <div className="scan-warning">{scanWarning}</div>
+      )}
 
       <div className="filters-summary">
         <span className="filters-label">Active Filters:</span>

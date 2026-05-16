@@ -1,10 +1,8 @@
 import json
-import os
 import time
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock, AsyncMock
-import pandas as pd
+from unittest.mock import patch
 
 from backend.main import app, _load_cache, _save_cache
 
@@ -47,7 +45,7 @@ def test_load_cache_expired(tmp_path, monkeypatch):
     assert not cache.exists()
 
 
-def test_load_cache_valid_returns_and_deletes(tmp_path, monkeypatch):
+def test_load_cache_valid_returns_and_keeps_file(tmp_path, monkeypatch):
     cache = tmp_path / "cache.json"
     cache.write_text(json.dumps({"timestamp": time.time(), "results": [{"ticker": "A"}], "total": 500}))
     monkeypatch.setattr("backend.main.CACHE_FILE", cache)
@@ -56,7 +54,7 @@ def test_load_cache_valid_returns_and_deletes(tmp_path, monkeypatch):
     results, total = result
     assert results == [{"ticker": "A"}]
     assert total == 500
-    assert not cache.exists()
+    assert cache.exists()  # file persists for subsequent reads within TTL
 
 
 def test_load_cache_corrupt_returns_none_and_deletes(tmp_path, monkeypatch):
@@ -80,52 +78,6 @@ def test_save_cache_writes_file(tmp_path, monkeypatch):
 def test_save_cache_handles_write_error(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.main.CACHE_FILE", tmp_path)  # directory → write fails
     _save_cache([], 10)  # must not raise
-
-
-# ── History endpoint ──────────────────────────────────────────────────────────
-
-def test_get_history_404_when_empty():
-    with patch("yfinance.download") as mock_dl:
-        mock_dl.return_value = pd.DataFrame()
-        resp = client.get("/api/history/INVALID")
-    assert resp.status_code == 404
-    assert "No data found" in resp.json()["detail"]
-
-
-def test_get_history_422_when_too_short():
-    with patch("yfinance.download") as mock_dl:
-        dates = pd.date_range(end="2024-01-01", periods=100)
-        mock_dl.return_value = pd.DataFrame(
-            {"Open": [100.0]*100, "High": [105.0]*100,
-             "Low": [95.0]*100, "Close": [102.0]*100, "Volume": [1000]*100},
-            index=dates,
-        )
-        resp = client.get("/api/history/AAPL")
-    assert resp.status_code == 422
-    assert "Insufficient data" in resp.json()["detail"]
-
-
-def test_get_history_success():
-    with patch("yfinance.download") as mock_dl:
-        dates = pd.date_range(end="2024-01-01", periods=250)
-        mock_dl.return_value = pd.DataFrame(
-            {"Open": [100.0]*250, "High": [105.0]*250,
-             "Low": [95.0]*250, "Close": [102.0]*250, "Volume": [1000]*250},
-            index=dates,
-        )
-        resp = client.get("/api/history/ADBE")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) == 250
-    assert "time" in data[0]
-    assert "close" in data[0]
-    assert "ema8" in data[0]
-    assert "sma200" in data[0]
-
-
-def test_ticker_validation_rejects_lowercase():
-    resp = client.get("/api/history/aapl")
-    assert resp.status_code == 422
 
 
 # ── Scan endpoint: full scan ──────────────────────────────────────────────────

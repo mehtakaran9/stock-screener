@@ -14,7 +14,7 @@ DANGER        = "#cf6679"
 BORDER        = "#333"
 BORDER_SUBTLE = "#2a2a2a"
 TEXT_PRIMARY  = "rgba(255,255,255,0.87)"
-TEXT_SECONDARY = "rgba(255,255,255,0.5)"
+TEXT_SECONDARY = "rgba(255,255,255,0.6)"
 TEXT_FAINT    = "rgba(255,255,255,0.4)"
 AMBER         = "#f59e0b"
 

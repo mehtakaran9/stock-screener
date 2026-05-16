@@ -229,6 +229,14 @@ tr.selected {
   transition: width 0.3s ease-out;
 }
 
+.scan-warning {
+  background-color: #2a1a00;
+  border-top: 1px solid #f59e0b;
+  padding: 0.5rem 2rem;
+  font-size: 0.75rem;
+  color: #f59e0b;
+}
+
 .filters-summary {
   background-color: var(--bg-secondary);
   padding: 0.75rem 2rem;
