@@ -4,7 +4,6 @@ import requests
 import pandas as pd
 import pandas_ta_classic as ta
 import yfinance as yf
-from yahooquery import Ticker
 import logging
 from logging.handlers import RotatingFileHandler
 from typing import List, Dict, Any, Optional
@@ -41,6 +40,18 @@ CONFIG = {
     "SMA200_RATIO": 0.75,
     "EMA8_RATIO": 0.80
 }
+
+def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, float]:
+    """Fetches market caps for a chunk of tickers using yfinance fast_info."""
+    result = {}
+    for ticker in chunk:
+        try:
+            mc = yf.Ticker(ticker).fast_info.market_cap
+            result[ticker] = float(mc) if mc is not None else 0.0
+        except Exception:
+            result[ticker] = 0.0
+    return result
+
 
 def get_active_filters():
     return [
@@ -116,7 +127,7 @@ async def screen_stocks(tickers: List[str]):
                         else:
                             raise
 
-                all_info = await asyncio.to_thread(lambda: Ticker(chunk).summary_detail)
+                market_caps = await asyncio.to_thread(_fetch_market_caps_bulk, chunk)
 
                 for ticker in chunk:
                     processed_count += 1
@@ -137,21 +148,7 @@ async def screen_stocks(tickers: List[str]):
                             logger.debug(f"{ticker} data too short: {len(df)}")
                             continue
 
-                        info = all_info.get(ticker)
-                        if not isinstance(info, dict):
-                            try:
-                                logger.debug(f"Retrying metadata for {ticker}")
-                                t = ticker
-                                info = await asyncio.to_thread(lambda: Ticker(t).summary_detail.get(t, {}))
-                            except Exception as e:
-                                logger.warning(f"Failed to fetch metadata for {ticker}: {e}")
-                                info = {}
-
-                        if not isinstance(info, dict):
-                            logger.debug(f"{ticker} info still not a dict")
-                            continue
-
-                        market_cap = info.get('marketCap', 0)
+                        market_cap = market_caps.get(ticker, 0.0)
 
                         raw_price = df['Close'].iloc[-1]
                         raw_prev = df['Close'].iloc[-2]

@@ -70,73 +70,48 @@ def generate_mock_data(ticker="AAPL", price_start=100, price_end=150, volume=600
     return df
 
 @patch('yfinance.download')
-@patch('backend.scanner.Ticker')
-def test_screen_stocks_success(mock_ticker, mock_download):
-    # Setup mock data that passes all filters
-    df = generate_mock_data(change_pct=0.05) # Passes 3% change
-    
-    # Mock yfinance download
-    # MultiIndex columns as returned by yf.download(group_by='ticker')
+@patch('backend.scanner._fetch_market_caps_bulk')
+def test_screen_stocks_success(mock_caps, mock_download):
+    df = generate_mock_data(change_pct=0.05)
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    
-    # Mock yahooquery Ticker
-    mock_ticker_instance = MagicMock()
-    mock_ticker_instance.summary_detail = {
-        'AAPL': {'marketCap': 2000000000} # Passes 1B market cap
-    }
-    mock_ticker.return_value = mock_ticker_instance
-    
+    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
-    
+
     assert len(results) == 1
     assert results[0]['ticker'] == 'AAPL'
     assert results[0]['change'] > 3
 
 @patch('yfinance.download')
-@patch('backend.scanner.Ticker')
-def test_screen_stocks_fails_market_cap(mock_ticker, mock_download):
+@patch('backend.scanner._fetch_market_caps_bulk')
+def test_screen_stocks_fails_market_cap(mock_caps, mock_download):
     df = generate_mock_data()
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    
-    mock_ticker_instance = MagicMock()
-    mock_ticker_instance.summary_detail = {
-        'AAPL': {'marketCap': 500000000} # Fails 1B market cap
-    }
-    mock_ticker.return_value = mock_ticker_instance
-    
+    mock_caps.return_value = {'AAPL': 500_000_000.0}  # Fails 1B market cap
+
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
 
 @patch('yfinance.download')
-@patch('backend.scanner.Ticker')
-def test_screen_stocks_fails_day_change(mock_ticker, mock_download):
-    df = generate_mock_data(change_pct=0.01) # Fails 3% change
+@patch('backend.scanner._fetch_market_caps_bulk')
+def test_screen_stocks_fails_day_change(mock_caps, mock_download):
+    df = generate_mock_data(change_pct=0.01)  # Fails 3% change
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    
-    mock_ticker_instance = MagicMock()
-    mock_ticker_instance.summary_detail = {
-        'AAPL': {'marketCap': 2000000000}
-    }
-    mock_ticker.return_value = mock_ticker_instance
-    
+    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
 
 @patch('yfinance.download')
-@patch('backend.scanner.Ticker')
-def test_screen_stocks_fails_volume(mock_ticker, mock_download):
-    df = generate_mock_data(volume=100000) # Fails 500K volume
+@patch('backend.scanner._fetch_market_caps_bulk')
+def test_screen_stocks_fails_volume(mock_caps, mock_download):
+    df = generate_mock_data(volume=100000)  # Fails 500K volume
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    
-    mock_ticker_instance = MagicMock()
-    mock_ticker_instance.summary_detail = {
-        'AAPL': {'marketCap': 2000000000}
-    }
-    mock_ticker.return_value = mock_ticker_instance
-    
+    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
