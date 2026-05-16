@@ -1,0 +1,41 @@
+name: Daily Market Scan
+
+on:
+  schedule:
+    - cron: '0 16 * * 1-5'   # 12:00 PM EDT (Mar–Nov, UTC-4)
+    - cron: '0 17 * * 1-5'   # 12:00 PM EST (Nov–Mar, UTC-5)
+  workflow_dispatch:           # Allow manual trigger from GitHub UI
+
+# Prevent duplicate concurrent runs (e.g. during DST transition weeks)
+concurrency:
+  group: daily-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run scan
+        env:
+          EMAIL_SMTP_HOST: ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT: ${{ secrets.EMAIL_SMTP_PORT }}
+          EMAIL_USER:      ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO:        ${{ secrets.EMAIL_TO }}
+          PYTHONPATH:      ${{ github.workspace }}
+        run: python -m backend.run_scan

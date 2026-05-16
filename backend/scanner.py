@@ -1,4 +1,6 @@
 import asyncio
+import io
+import requests
 import pandas as pd
 import pandas_ta_classic as ta
 import yfinance as yf
@@ -50,18 +52,23 @@ def get_active_filters():
         f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K"
     ]
 
-def get_full_market_tickers() -> List[str]:
+FALLBACK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
+
+def get_full_market_tickers() -> tuple[list[str], bool]:
     """
-    Fetches a list of active US tickers. 
+    Fetches S&P 500 tickers. Returns (tickers, is_full_list).
+    is_full_list=False means the S&P 500 CSV was unavailable and a fallback was used.
     """
     try:
         url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
-        df = pd.read_csv(url)
-        tickers = df['Symbol'].tolist()
-        return [t.replace('.', '-') for t in tickers]
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        df = pd.read_csv(io.StringIO(resp.text))
+        tickers = [t.replace('.', '-') for t in df['Symbol'].tolist()]
+        return tickers, True
     except Exception as e:
-        logger.error(f"Error fetching tickers: {e}")
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
+        logger.error(f"Failed to fetch S&P 500 list, using fallback: {e}")
+        return FALLBACK_TICKERS, False
 
 async def screen_stocks(tickers: List[str]):
     """
@@ -91,9 +98,12 @@ async def screen_stocks(tickers: List[str]):
                 retries = 3
                 for attempt in range(retries):
                     try:
-                        downloaded_data = await asyncio.to_thread(
-                            yf.download, chunk,
-                            period=period, group_by='ticker', progress=False, threads=False
+                        downloaded_data = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                yf.download, chunk,
+                                period=period, group_by='ticker', progress=False, threads=False
+                            ),
+                            timeout=120.0
                         )
                         if downloaded_data is None or downloaded_data.empty:
                             raise ValueError("Empty data returned")
@@ -199,7 +209,7 @@ async def screen_stocks(tickers: List[str]):
                         yield result
 
                     except Exception as e:
-                        logger.debug(f"Error processing {ticker}: {e}")
+                        logger.warning(f"Error processing {ticker} ({type(e).__name__}): {e}")
                         continue
 
             except Exception as e:
@@ -210,7 +220,8 @@ async def screen_stocks(tickers: List[str]):
 
 if __name__ == "__main__":
     async def _test():
-        tickers = get_full_market_tickers()[:20]
+        tickers, _ = get_full_market_tickers()
+        tickers = tickers[:20]
         print(f"Testing with {len(tickers)} tickers...")
         async for res in screen_stocks(tickers):
             print(f"Found: {res}")

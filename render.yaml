@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: stock-screener-api
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    plan: free
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://your-app.vercel.app   # replace with your actual Vercel URL after deploy
+      - key: DISABLE_SCHEDULER
+        value: "true"
+      - key: PYTHONPATH
+        value: /opt/render/project/src

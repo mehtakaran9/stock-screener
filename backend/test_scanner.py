@@ -12,20 +12,24 @@ def run_screen(tickers):
         return [item async for item in screen_stocks(tickers)]
     return asyncio.run(_collect())
 
-@patch('pandas.read_csv')
-def test_get_full_market_tickers_success(mock_read_csv):
-    mock_df = pd.DataFrame({'Symbol': ['AAPL', 'MSFT']})
-    mock_read_csv.return_value = mock_df
-    tickers = get_full_market_tickers()
+@patch('backend.scanner.requests.get')
+def test_get_full_market_tickers_success(mock_get):
+    mock_response = MagicMock()
+    mock_response.text = "Symbol\nAAPL\nMSFT"
+    mock_response.raise_for_status = MagicMock()
+    mock_get.return_value = mock_response
+    tickers, is_full = get_full_market_tickers()
     assert tickers == ['AAPL', 'MSFT']
+    assert is_full is True
 
-@patch('pandas.read_csv')
-def test_get_full_market_tickers_fail(mock_read_csv):
-    mock_read_csv.side_effect = Exception("Network error")
-    tickers = get_full_market_tickers()
-    # Should return the default list
+@patch('backend.scanner.requests.get')
+def test_get_full_market_tickers_fail(mock_get):
+    mock_get.side_effect = Exception("Network error")
+    tickers, is_full = get_full_market_tickers()
+    # Should return the fallback list
     assert "AAPL" in tickers
     assert len(tickers) > 2
+    assert is_full is False
 
 def generate_mock_data(ticker="AAPL", price_start=100, price_end=150, volume=600000, days=300, change_pct=0.05, should_pass_ema=True):
     dates = pd.date_range(end='2024-01-01', periods=days)

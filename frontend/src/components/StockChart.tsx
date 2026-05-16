@@ -64,14 +64,14 @@ const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
     }));
 
     const emaData: LineData<Time>[] = data
-      .filter(d => d.ema8 !== null)
+      .filter((d): d is typeof d & { ema8: number } => d.ema8 !== null)
       .map(d => ({
         time: d.time as Time,
         value: d.ema8,
       }));
 
     const smaData: LineData<Time>[] = data
-      .filter(d => d.sma200 !== null)
+      .filter((d): d is typeof d & { sma200: number } => d.sma200 !== null)
       .map(d => ({
         time: d.time as Time,
         value: d.sma200,

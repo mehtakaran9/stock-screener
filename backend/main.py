@@ -4,12 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import asyncio
 import logging
+import os
 import warnings
 from rich.logging import RichHandler
 
 # Suppress noisy multiprocessing warnings at shutdown
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing")
 from backend.scanner import get_full_market_tickers, screen_stocks, get_active_filters
+from backend.scheduler import start_scheduler
 import yfinance as yf
 import pandas_ta_classic as ta
 import pandas as pd
@@ -26,16 +28,23 @@ logging.basicConfig(
 logging.getLogger("yfinance").setLevel(logging.WARNING)
 logging.getLogger("peewee").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 logger = logging.getLogger("main")
 
 app = FastAPI()
 
+@app.on_event("startup")
+async def startup_event():
+    if not os.getenv("DISABLE_SCHEDULER"):
+        start_scheduler()
+
 # Enable CORS for React frontend
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
 
@@ -50,7 +59,9 @@ async def get_filters():
 @app.get("/api/scan")
 async def scan_market():
     async def event_generator():
-        tickers = await asyncio.to_thread(get_full_market_tickers)
+        tickers, is_full = await asyncio.to_thread(get_full_market_tickers)
+        if not is_full:
+            yield f"data: {json.dumps({'status': 'warning', 'message': 'S&P 500 list unavailable; scanning fallback tickers only.'})}\n\n"
         target_tickers = tickers[:500]
 
         yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': 0})}\n\n"
@@ -67,7 +78,7 @@ async def scan_market():
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/history/{ticker}")
-async def get_history(ticker: str = Path(..., pattern=r"^[A-Z0-9.\-]{1,10}$")):
+async def get_history(ticker: str = Path(..., pattern=r"^[A-Z0-9\-]{1,10}$")):
     """
     Returns historical OHLCV data with 8EMA and 200SMA for charting.
     """

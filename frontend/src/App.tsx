@@ -48,13 +48,20 @@ function App() {
     }
   };
 
-  const startScan = () => {
+  const startScan = async () => {
     if (isScanning) return;
 
     setStocks([]);
     setIsScanning(true);
     setProgress(null);
     setStartTime(Date.now());
+
+    try {
+      await fetch(`${API_URL}/`);
+    } catch {
+      setIsScanning(false);
+      return;
+    }
 
     const es = new EventSource(`${API_URL}/api/scan`);
     eventSourceRef.current = es;
@@ -125,7 +132,7 @@ function App() {
       </header>
 
       <main>
-        <div className="left-panel full-width">
+        <div className="left-panel">
           <div className="stats-header">
             <h2>Market Scan Results</h2>
             {progress && (
