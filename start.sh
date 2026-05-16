@@ -13,6 +13,9 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+echo "Ensuring port 8000 is clear..."
+lsof -t -i:8000 | xargs kill -9 2>/dev/null
+
 echo "Starting Stock Screener Backend (FastAPI)..."
 source venv/bin/activate
 export PYTHONPATH=$PYTHONPATH:.

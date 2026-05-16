@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, ISeriesApi, CandlestickData, LineData, Time } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, LineSeries, type CandlestickData, type LineData, type Time } from 'lightweight-charts';
 
 interface StockChartProps {
   data: any[];
@@ -8,7 +8,6 @@ interface StockChartProps {
 
 const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<any>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -26,7 +25,7 @@ const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
       height: 400,
     });
 
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
@@ -34,13 +33,13 @@ const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
       wickDownColor: '#ef5350',
     });
 
-    const ema8Series = chart.addLineSeries({
+    const ema8Series = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
       title: '8 EMA',
     });
 
-    const sma200Series = chart.addLineSeries({
+    const sma200Series = chart.addSeries(LineSeries, {
       color: '#eab308',
       lineWidth: 2,
       title: '200 SMA',
@@ -73,7 +72,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
     sma200Series.setData(smaData);
 
     chart.timeScale().fitContent();
-    chartRef.current = chart;
 
     const handleResize = () => {
       chart.applyOptions({ width: chartContainerRef.current?.clientWidth });
@@ -90,7 +88,7 @@ const StockChart: React.FC<StockChartProps> = ({ data, ticker }) => {
   return (
     <div className="stock-chart-container">
       <h3>{ticker} Analysis</h3>
-      <div ref={chartContainerRef} style={{ position: 'relative' }} />
+      <div ref={chartContainerRef} style={{ width: '100%', height: '400px' }} />
     </div>
   );
 };

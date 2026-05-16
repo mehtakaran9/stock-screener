@@ -35,13 +35,12 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, onSelect, selectedTicke
             <th>Change %</th>
             <th>Volume</th>
             <th>Market Cap</th>
-            <th>Status</th>
           </tr>
         </thead>
         <tbody>
           {stocks.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+              <td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>
                 No stocks found matching criteria. Start a scan to find opportunities.
               </td>
             </tr>
@@ -71,10 +70,6 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, onSelect, selectedTicke
                     <Database size={16} style={{ marginRight: '4px' }} />
                     {formatNumber(stock.market_cap)}
                   </div>
-                </td>
-                <td>
-                  <span className="badge">Riding 8EMA</span>
-                  <span className="badge">Above 200SMA</span>
                 </td>
               </tr>
             ))

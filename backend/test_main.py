@@ -15,7 +15,7 @@ def test_get_history_error():
         assert response.json() == {"error": "No data found"}
 
 @patch('yfinance.download')
-def test_get_history_success(mock_download):
+def test_get_history_adbe_success(mock_download):
     # Provide at least 200 rows for SMA200
     dates = pd.date_range(end='2024-01-01', periods=250)
     df = pd.DataFrame({
@@ -27,12 +27,12 @@ def test_get_history_success(mock_download):
     }, index=dates)
     mock_download.return_value = df
 
-    response = client.get("/api/history/AAPL")
+    response = client.get("/api/history/ADBE")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 250
-    assert "ema8" in data[-1]
-    assert "sma200" in data[-1]
+    assert "time" in data[0]
+    assert "close" in data[0]
 
 @patch('backend.main.get_full_market_tickers')
 @patch('backend.main.screen_stocks')

@@ -8,3 +8,4 @@ httpx
 pytest
 pytest-asyncio
 yahooquery
+rich==15.0.0

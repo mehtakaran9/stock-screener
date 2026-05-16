@@ -3,18 +3,57 @@ import pandas_ta_classic as ta
 import yfinance as yf
 from yahooquery import Ticker
 import logging
+import time
 from typing import List, Dict, Any, Optional
+from rich.logging import RichHandler
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure logging with Rich
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True)]
+)
+
+logger = logging.getLogger("scanner")
+logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler('scanner.log')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Suppress noisy logs from dependencies
+logging.getLogger("yfinance").setLevel(logging.WARNING)
+logging.getLogger("peewee").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# Screening Parameters (Single Source of Truth)
+CONFIG = {
+    "MIN_MARKET_CAP": 1_000_000_000,
+    "MIN_PRICE": 5.0,
+    "MIN_DAY_CHANGE": 0.03,
+    "MIN_VOLUME": 500_000,
+    "SMA200_RATIO": 0.75,
+    "EMA8_RATIO": 0.80
+}
+
+def get_active_filters():
+    return [
+        f"Day Change > {int(CONFIG['MIN_DAY_CHANGE']*100)}%",
+        f"Market Cap > ${CONFIG['MIN_MARKET_CAP']/1_000_000_000:.0f}B",
+        f"Price > ${CONFIG['MIN_PRICE']}",
+        f"Above {int(CONFIG['SMA200_RATIO']*100)}% SMA200",
+        f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of 8EMA",
+        f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K"
+    ]
 
 def get_full_market_tickers() -> List[str]:
     """
     Fetches a list of active US tickers. 
     """
     try:
-        # Try fetching from a reliable CSV or just use a larger static list for the prototype
-        # S&P 500 from a common github gist or similar if wikipedia fails
         url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
         df = pd.read_csv(url)
         tickers = df['Symbol'].tolist()
@@ -26,100 +65,147 @@ def get_full_market_tickers() -> List[str]:
 def screen_stocks(tickers: List[str]):
     """
     Screens a list of tickers based on the defined filters.
-    Yields results as they are found for streaming.
+    Yields results (dict) or progress (int) as they are processed.
     """
     period = "2y" 
-    
-    logger.info(f"Downloading data for {len(tickers)} tickers...")
-    
+    processed_count = 0
     chunk_size = 50
-    for i in range(0, len(tickers), chunk_size):
-        chunk = tickers[i:i + chunk_size]
-        try:
-            # Removed 'silent=True' as it might not be supported in some versions
-            data = yf.download(chunk, period=period, group_by='ticker', progress=False)
-            
-            # Fetching Market Cap and other info using yahooquery for speed
-            t_query = Ticker(chunk)
-            all_info = t_query.summary_detail
-            
-            for ticker in chunk:
-                try:
-                    # Robust extraction for multi-index vs single index
-                    if isinstance(data.columns, pd.MultiIndex):
-                        if ticker not in data.columns.levels[0]: continue
-                        df = data[ticker].dropna()
-                    else:
-                        df = data.dropna()
-                    
-                    if len(df) < 200: # Need at least 200 days for SMA200
-                        continue
-                    
-                    info = all_info.get(ticker, {})
-                    if not isinstance(info, dict): continue
-                    
-                    market_cap = info.get('marketCap', 0)
-                    price = float(df['Close'].iloc[-1])
-                    prev_close = float(df['Close'].iloc[-2])
-                    day_change = (price - prev_close) / prev_close
-                    volume = int(df['Volume'].iloc[-1])
-                    
-                    # 1. Market Cap > 1B and Price > 5
-                    if market_cap < 1_000_000_000 or price <= 5:
-                        logger.debug(f"{ticker} failed MC/Price: {market_cap}, {price}")
-                        continue
-                    
-                    # 2. Day Change > 3%
-                    if day_change <= 0.03:
-                        logger.debug(f"{ticker} failed Change: {day_change}")
-                        continue
-                        
-                    # 3. Volume > 500K
-                    if volume < 500_000:
-                        logger.debug(f"{ticker} failed Volume: {volume}")
-                        continue
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("[green]Scanning market...", total=len(tickers))
+        
+        for i in range(0, len(tickers), chunk_size):
+            chunk = tickers[i:i + chunk_size]
+            try:
+                # Add a small delay to avoid rate limits with jitter
+                time.sleep(2 + (i % 3)) 
+                
+                # DEBUG: log the chunk being requested
+                logger.debug(f"Requesting chunk: {chunk}")
+                
+                # Retry logic for rate limits
+                retries = 3
+                for attempt in range(retries):
+                    try:
+                        downloaded_data = yf.download(chunk, period=period, group_by='ticker', progress=False, threads=False)
+                        if downloaded_data is None or downloaded_data.empty:
+                            raise Exception("Empty data returned")
+                        data = downloaded_data
+                        break
+                    except Exception as e:
+                        if attempt < retries - 1:
+                            time.sleep(5 * (attempt + 1))
+                            continue
+                        else:
+                            raise e
 
-                    # Technical Indicators
-                    # 4. Above 200 SMA
-                    sma200_series = df['Close'].rolling(window=200).mean()
-                    curr_sma200 = float(sma200_series.iloc[-1])
-                    if price <= curr_sma200:
-                        logger.debug(f"{ticker} failed SMA200: {price} <= {curr_sma200}")
-                        continue
+                t_query = Ticker(chunk)
+                all_info = t_query.summary_detail
+                
+                for ticker in chunk:
+                    processed_count += 1
+                    progress.update(task, advance=1, description=f"[green]Scanning {ticker}...")
                     
-                    # 5. 1Y Resistance Breakout
-                    one_year_high = float(df['High'].iloc[:-1].tail(252).max())
-                    if price <= one_year_high:
-                        logger.debug(f"{ticker} failed 1Y High: {price} <= {one_year_high}")
-                        continue
+                    # Yield progress update for each ticker to keep UI snappy
+                    yield {"status": "progress", "current": processed_count, "ticker": ticker}
+                    
+                    try:
+                        # Robust extraction for multi-index vs single index
+                        if isinstance(data.columns, pd.MultiIndex):
+                            if ticker not in data.columns.levels[0]: 
+                                logger.debug(f"{ticker} not in data columns")
+                                continue
+                            df = data[ticker].dropna()
+                        else:
+                            df = data.dropna()
                         
-                    # 6. Riding 8EMA
-                    ema8_series = ta.ema(df['Close'], length=8)
-                    if ema8_series is None or ema8_series.empty: continue
-                    curr_ema8 = float(ema8_series.iloc[-1])
-                    
-                    if price < curr_ema8 or price > curr_ema8 * 1.02:
-                        logger.debug(f"{ticker} failed EMA8: {price}, EMA8: {curr_ema8}")
-                        continue
+                        if len(df) < 200:
+                            logger.debug(f"{ticker} data too short: {len(df)}")
+                            continue
+                        
+                        # Robust fallback for ticker info
+                        info = all_info.get(ticker)
+                        if not isinstance(info, dict):
+                            # Try to fetch just for this ticker if batch failed
+                            try:
+                                logger.debug(f"Retrying metadata for {ticker}")
+                                info = Ticker(ticker).summary_detail.get(ticker, {})
+                            except:
+                                info = {}
+                        
+                        if not isinstance(info, dict): 
+                            logger.debug(f"{ticker} info still not a dict")
+                            continue
+                        
+                        market_cap = info.get('marketCap', 0)
+                        price = float(df['Close'].iloc[-1])
+                        prev_close = float(df['Close'].iloc[-2])
+                        day_change = (price - prev_close) / prev_close
+                        volume = int(df['Volume'].iloc[-1])
+                        
+                        # 1. Market Cap and Price filters
+                        if market_cap < CONFIG["MIN_MARKET_CAP"] or price <= CONFIG["MIN_PRICE"]:
+                            logger.debug(f"{ticker} failed MC/Price: MC={market_cap}, Price={price}")
+                            continue
+                        
+                        # 2. Day Change
+                        if day_change <= CONFIG["MIN_DAY_CHANGE"]:
+                            logger.debug(f"{ticker} failed Change: {day_change*100:.2f}%")
+                            continue
+                            
+                        # 3. Volume
+                        if volume < CONFIG["MIN_VOLUME"]:
+                            logger.debug(f"{ticker} failed Volume: {volume}")
+                            continue
+                        
+                        logger.debug(f"{ticker} PASSED base filters: Price={price}, MC={market_cap}, Vol={volume}")
+                        
+                        # Technical Indicators
+                        # 4. SMA200
+                        sma200_series = df['Close'].rolling(window=200).mean()
+                        curr_sma200 = float(sma200_series.iloc[-1])
+                        if price < curr_sma200 * CONFIG["SMA200_RATIO"]:
+                            logger.debug(f"{ticker} below {CONFIG['SMA200_RATIO']*100}% SMA200: Price={price}, SMA200={curr_sma200}")
+                            continue
+                        
+                        # 5. Breakout filter removed
+                        
+                        # 6. Riding 8EMA
+                        ema8_series = ta.ema(df['Close'], length=8)
+                        if ema8_series is None or ema8_series.empty: continue
+                        curr_ema8 = float(ema8_series.iloc[-1])
+                        
+                        if price < curr_ema8 * CONFIG["EMA8_RATIO"]:
+                            logger.debug(f"{ticker} below {CONFIG['EMA8_RATIO']*100}% 8EMA range: Price={price}, 8EMA={curr_ema8}")
+                            continue
 
-                    result = {
-                        "ticker": ticker,
-                        "price": round(float(price), 2),
-                        "change": round(float(day_change * 100), 2),
-                        "volume": int(volume),
-                        "market_cap": int(market_cap),
-                        "ema8": round(float(curr_ema8), 2),
-                        "sma200": round(float(curr_sma200), 2),
-                        "high1y": round(float(one_year_high), 2)
-                    }
-                    yield result
+                        result = {
+                            "ticker": ticker,
+                            "price": round(float(price), 2),
+                            "change": round(float(day_change * 100), 2),
+                            "volume": int(volume),
+                            "market_cap": int(market_cap),
+                            "ema8": round(float(curr_ema8), 2),
+                            "sma200": round(float(curr_sma200), 2)
+                        }
+                        logger.info(f"[bold green]Found breakout:[/bold green] {ticker} at ${result['price']} ({result['change']}%)")
+                        yield result
                     
-                except Exception as e:
-                    logger.debug(f"Error processing {ticker}: {e}")
-                    continue
-        except Exception as e:
-            logger.error(f"Error downloading chunk: {e}")
-            continue
+                    except Exception as e:
+                        logger.debug(f"Error processing {ticker}: {e}")
+                        continue
+                
+            except Exception as e:
+                logger.error(f"Error downloading chunk: {e}")
+                processed_count += len(chunk)
+                yield {"status": "progress", "current": processed_count, "ticker": "Error in chunk"}
+                continue
 
 if __name__ == "__main__":
     # Test run

@@ -3,10 +3,31 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import asyncio
-from backend.scanner import get_full_market_tickers, screen_stocks
+import logging
+import warnings
+from rich.logging import RichHandler
+
+# Suppress noisy multiprocessing warnings at shutdown
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing")
+from backend.scanner import get_full_market_tickers, screen_stocks, get_active_filters
 import yfinance as yf
 import pandas_ta_classic as ta
 import pandas as pd
+
+# Configure logging with Rich
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True)]
+)
+
+# Suppress noisy logs from dependencies (already in scanner.py, but good to have here too)
+logging.getLogger("yfinance").setLevel(logging.WARNING)
+logging.getLogger("peewee").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+logger = logging.getLogger("main")
 
 app = FastAPI()
 
@@ -19,22 +40,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    return {"message": "Stock Screener API is running. Visit /docs for API documentation."}
+
+@app.get("/api/filters")
+async def get_filters():
+    return {"filters": get_active_filters()}
+
 @app.get("/api/scan")
 async def scan_market():
     async def event_generator():
         tickers = get_full_market_tickers()
-        # For prototype, we might want to limit this or allow user to specify
-        # For now, let's scan a decent chunk
         target_tickers = tickers[:500] 
         
         yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': 0})}\n\n"
         
-        count = 0
-        for stock in screen_stocks(target_tickers):
-            count += 1
-            yield f"data: {json.dumps({'status': 'result', 'data': stock})}\n\n"
-            # Optional: yield progress every X stocks if no result found
-            await asyncio.sleep(0.01) # Yield control
+        for update in screen_stocks(target_tickers):
+            if isinstance(update, dict):
+                if update.get('status') == 'progress':
+                    yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': update['current'], 'ticker': update.get('ticker')})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'status': 'result', 'data': update})}\n\n"
+            
+            await asyncio.sleep(0.01)
             
         yield f"data: {json.dumps({'status': 'complete'})}\n\n"
 
@@ -47,7 +76,7 @@ async def get_history(ticker: str):
     Includes 8EMA and 200SMA.
     """
     df = yf.download(ticker, period="2y", progress=False)
-    if df.empty:
+    if df is None or df.empty:
         return {"error": "No data found"}
     
     # Calculate indicators
@@ -60,8 +89,20 @@ async def get_history(ticker: str):
     for _, row in df.iterrows():
         # yfinance reset_index usually names the date column 'Date' or 'index' depending on version
         date_col = 'Date' if 'Date' in df.columns else 'index'
+        # Convert to Timestamp if needed
+        ts = row[date_col]
+        
+        # Skip if it's not a valid type (e.g., Ticker object)
+        if not isinstance(ts, (pd.Timestamp, str, int, float)):
+            continue
+            
+        if hasattr(ts, 'timestamp'):
+            timestamp = int(ts.timestamp())
+        else:
+            timestamp = int(pd.Timestamp(ts).timestamp())
+
         history.append({
-            "time": int(row[date_col].timestamp()),
+            "time": timestamp,
             "open": float(row['Open']),
             "high": float(row['High']),
             "low": float(row['Low']),
