@@ -7,6 +7,7 @@ Optional env vars: EMAIL_SMTP_PORT (default 587)
 """
 import asyncio
 import logging
+import os
 import sys
 from datetime import datetime
 
@@ -28,9 +29,14 @@ def is_nyse_trading_day() -> bool:
 
 
 async def main() -> int:
-    if not is_nyse_trading_day():
+    test_mode = os.getenv("TEST_EMAIL", "").lower() == "true"
+
+    if not test_mode and not is_nyse_trading_day():
         logger.info("Not a NYSE trading day — skipping scan.")
         return 0
+
+    if test_mode:
+        logger.info("Test mode — skipping trading day check, running full scan.")
 
     tickers, is_full = get_full_market_tickers()
     if not is_full:
@@ -49,6 +55,9 @@ async def main() -> int:
 
     if results:
         send_scan_results_email(results)
+    elif test_mode:
+        logger.info("No matches found, but sending email anyway (test mode).")
+        send_scan_results_email([])
     else:
         logger.info("No matches — skipping email.")
 

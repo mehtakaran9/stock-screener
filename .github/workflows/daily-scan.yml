@@ -5,6 +5,13 @@ on:
     - cron: '0 16 * * 1-5'   # 12:00 PM EDT (Mar–Nov, UTC-4)
     - cron: '0 17 * * 1-5'   # 12:00 PM EST (Nov–Mar, UTC-5)
   workflow_dispatch:           # Allow manual trigger from GitHub UI
+    inputs:
+      test_email:
+        description: 'Send a test email with dummy data (skips the full scan)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 # Prevent duplicate concurrent runs (e.g. during DST transition weeks)
 concurrency:
@@ -38,4 +45,5 @@ jobs:
           EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO:        ${{ secrets.EMAIL_TO }}
           PYTHONPATH:      ${{ github.workspace }}
+          TEST_EMAIL:      ${{ github.event.inputs.test_email }}
         run: python -m backend.run_scan
