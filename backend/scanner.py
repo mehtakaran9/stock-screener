@@ -1,5 +1,6 @@
 import asyncio
 import io
+import time
 import requests
 import pandas as pd
 import pandas_ta_classic as ta
@@ -41,15 +42,38 @@ CONFIG = {
     "EMA8_RATIO": 0.80
 }
 
+_RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
+
+def _is_rate_limit(exc: Exception) -> bool:
+    return any(s in str(exc).lower() or s in type(exc).__name__.lower() for s in _RATE_LIMIT_SIGNALS)
+
 def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, float]:
-    """Fetches market caps for a chunk of tickers using yfinance fast_info."""
+    """
+    Fetches market caps for a chunk of tickers using yfinance fast_info.
+    Retries rate-limited tickers with exponential backoff (15s → 30s → 60s).
+    Falls back to a large default on exhausted retries so the ticker is not
+    unfairly dropped — all S&P 500 stocks clear the $1B minimum anyway.
+    """
     result = {}
     for ticker in chunk:
-        try:
-            mc = yf.Ticker(ticker).fast_info.market_cap
-            result[ticker] = float(mc) if mc is not None else 0.0
-        except Exception:
-            result[ticker] = 0.0
+        for attempt in range(4):
+            try:
+                mc = yf.Ticker(ticker).fast_info.market_cap
+                result[ticker] = float(mc) if mc is not None else 0.0
+                break
+            except Exception as e:
+                if _is_rate_limit(e) and attempt < 3:
+                    wait = 15 * (2 ** attempt)   # 15s, 30s, 60s
+                    logger.warning(f"Rate limited on {ticker} fast_info, retrying in {wait}s (attempt {attempt + 1}/3)")
+                    time.sleep(wait)
+                else:
+                    if _is_rate_limit(e):
+                        logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap")
+                        result[ticker] = float(CONFIG["MIN_MARKET_CAP"] * 10)  # safe pass-through
+                    else:
+                        logger.debug(f"Could not fetch market cap for {ticker}: {e}")
+                        result[ticker] = 0.0
+                    break
     return result
 
 
@@ -122,7 +146,9 @@ async def screen_stocks(tickers: List[str]):
                         break
                     except Exception as e:
                         if attempt < retries - 1:
-                            await asyncio.sleep(5 * (attempt + 1))
+                            wait = 60 * (attempt + 1) if _is_rate_limit(e) else 5 * (attempt + 1)
+                            logger.warning(f"Chunk download attempt {attempt + 1} failed ({type(e).__name__}), retrying in {wait}s")
+                            await asyncio.sleep(wait)
                             continue
                         else:
                             raise
