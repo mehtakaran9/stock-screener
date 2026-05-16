@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, BarChart3, Database } from 'lucide-react';
 
 interface Stock {
   ticker: string;
+  exchange: string;
   price: number;
   change: number;
   volume: number;
@@ -51,7 +52,16 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, onSelect, selectedTicke
                 onClick={() => onSelect?.(stock.ticker)}
                 className={selectedTicker === stock.ticker ? 'selected' : ''}
               >
-                <td className="ticker-cell">{stock.ticker}</td>
+                <td className="ticker-cell">
+                  <a
+                    href={`https://www.google.com/finance/quote/${stock.ticker}:${stock.exchange}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {stock.ticker}
+                  </a>
+                </td>
                 <td>${stock.price.toFixed(2)}</td>
                 <td className={stock.change >= 0 ? 'positive' : 'negative'}>
                   <div className="flex-center">

@@ -7,6 +7,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 interface Stock {
   ticker: string;
+  exchange: string;
   price: number;
   change: number;
   volume: number;

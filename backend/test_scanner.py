@@ -75,7 +75,7 @@ def test_screen_stocks_success(mock_caps, mock_download):
     df = generate_mock_data(change_pct=0.05)
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+    mock_caps.return_value = {'AAPL': {'market_cap': 2_000_000_000.0, 'exchange': 'NASDAQ'}}
 
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
 
@@ -89,7 +89,7 @@ def test_screen_stocks_fails_market_cap(mock_caps, mock_download):
     df = generate_mock_data()
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    mock_caps.return_value = {'AAPL': 500_000_000.0}  # Fails 1B market cap
+    mock_caps.return_value = {'AAPL': {'market_cap': 500_000_000.0, 'exchange': 'NASDAQ'}}  # Fails 1B market cap
 
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
@@ -100,7 +100,7 @@ def test_screen_stocks_fails_day_change(mock_caps, mock_download):
     df = generate_mock_data(change_pct=0.01)  # Fails 3% change
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+    mock_caps.return_value = {'AAPL': {'market_cap': 2_000_000_000.0, 'exchange': 'NASDAQ'}}
 
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
@@ -111,7 +111,7 @@ def test_screen_stocks_fails_volume(mock_caps, mock_download):
     df = generate_mock_data(volume=100000)  # Fails 500K volume
     df.columns = pd.MultiIndex.from_product([['AAPL'], df.columns])
     mock_download.return_value = df
-    mock_caps.return_value = {'AAPL': 2_000_000_000.0}
+    mock_caps.return_value = {'AAPL': {'market_cap': 2_000_000_000.0, 'exchange': 'NASDAQ'}}
 
     results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0

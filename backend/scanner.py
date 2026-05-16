@@ -44,12 +44,17 @@ CONFIG = {
 
 _RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
 
+_EXCHANGE_MAP = {
+    'NMS': 'NASDAQ', 'NGM': 'NASDAQ', 'NCM': 'NASDAQ',
+    'NYQ': 'NYSE',   'PCX': 'NYSE',
+}
+
 def _is_rate_limit(exc: Exception) -> bool:
     return any(s in str(exc).lower() or s in type(exc).__name__.lower() for s in _RATE_LIMIT_SIGNALS)
 
-def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, float]:
+def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, dict]:
     """
-    Fetches market caps for a chunk of tickers using yfinance fast_info.
+    Fetches market caps and exchange for a chunk of tickers using yfinance fast_info.
     Retries rate-limited tickers with exponential backoff (15s → 30s → 60s).
     Falls back to a large default on exhausted retries so the ticker is not
     unfairly dropped — all S&P 500 stocks clear the $1B minimum anyway.
@@ -58,8 +63,10 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, float]:
     for ticker in chunk:
         for attempt in range(4):
             try:
-                mc = yf.Ticker(ticker).fast_info.market_cap
-                result[ticker] = float(mc) if mc is not None else 0.0
+                fi = yf.Ticker(ticker).fast_info
+                mc = fi.market_cap
+                exc = _EXCHANGE_MAP.get(getattr(fi, 'exchange', ''), 'NASDAQ')
+                result[ticker] = {'market_cap': float(mc) if mc is not None else 0.0, 'exchange': exc}
                 break
             except Exception as e:
                 if _is_rate_limit(e) and attempt < 3:
@@ -68,11 +75,11 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, float]:
                     time.sleep(wait)
                 else:
                     if _is_rate_limit(e):
-                        logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap")
-                        result[ticker] = float(CONFIG["MIN_MARKET_CAP"] * 10)  # safe pass-through
+                        logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap NASDAQ")
+                        result[ticker] = {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ'}
                     else:
                         logger.debug(f"Could not fetch market cap for {ticker}: {e}")
-                        result[ticker] = 0.0
+                        result[ticker] = {'market_cap': 0.0, 'exchange': 'NASDAQ'}
                     break
     return result
 
@@ -177,7 +184,9 @@ async def screen_stocks(tickers: List[str]):
                             logger.debug(f"{ticker} data too short: {len(df)}")
                             continue
 
-                        market_cap = market_caps.get(ticker, 0.0)
+                        info = market_caps.get(ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ'})
+                        market_cap = info['market_cap']
+                        exchange = info['exchange']
 
                         raw_price = df['Close'].iloc[-1]
                         raw_prev = df['Close'].iloc[-2]
@@ -224,6 +233,7 @@ async def screen_stocks(tickers: List[str]):
 
                         result = {
                             "ticker": ticker,
+                            "exchange": exchange,
                             "price": round(float(price), 2),
                             "change": round(float(day_change * 100), 2),
                             "volume": int(volume),

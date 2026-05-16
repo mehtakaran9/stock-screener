@@ -20,7 +20,7 @@ import pandas_market_calendars as mcal
 import pytz
 
 from backend.scanner import get_full_market_tickers, screen_stocks
-from backend.notifications import send_scan_results_email
+from backend.notifications import send_scan_results_email, _DUMMY_STOCKS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("run_scan")
@@ -40,8 +40,8 @@ async def main() -> int:
 
     if full_scan_input == "false":
         if send_email:
-            logger.info("Scan skipped — sending dummy email.")
-            send_scan_results_email([])
+            logger.info("Scan skipped — sending test email with dummy data.")
+            send_scan_results_email(_DUMMY_STOCKS, is_test=True)
         else:
             logger.info("Scan skipped, email disabled — nothing to do.")
         return 0
