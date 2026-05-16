@@ -44,6 +44,7 @@ function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
+  const [scanComplete, setScanComplete] = useState<{ total: number } | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -73,6 +74,7 @@ function App() {
     setStocks([]);
     setIsScanning(true);
     setProgress(null);
+    setScanComplete(null);
     setStartTime(Date.now());
 
     try {
@@ -98,6 +100,8 @@ function App() {
           });
         } else if (data.status === 'complete') {
           setIsScanning(false);
+          setProgress(null);
+          setScanComplete({ total: data.total });
           es.close();
           eventSourceRef.current = null;
         }
@@ -168,6 +172,11 @@ function App() {
                   </span>
                   <span className="progress-eta">ETA: {calculateETA()}</span>
                 </div>
+              </div>
+            )}
+            {scanComplete && !isScanning && (
+              <div className="scan-complete-msg">
+                Scan complete · {scanComplete.total} tickers scanned
               </div>
             )}
             {stocks.length > 0 && !isScanning && (

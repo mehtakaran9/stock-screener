@@ -73,7 +73,7 @@ async def scan_market():
                 else:
                     yield f"data: {json.dumps({'status': 'result', 'data': update})}\n\n"
 
-        yield f"data: {json.dumps({'status': 'complete'})}\n\n"
+        yield f"data: {json.dumps({'status': 'complete', 'total': len(target_tickers)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 

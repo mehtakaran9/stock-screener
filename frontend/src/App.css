@@ -348,3 +348,8 @@ tr.selected {
   width: 24px;
 }
 .risk-cell { color: var(--text-secondary); }
+
+.scan-complete-msg {
+  font-size: 0.75rem;
+  color: var(--success);
+}
