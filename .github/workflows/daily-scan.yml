@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 300
     permissions:
       contents: read
+      actions: write
 
     steps:
       - name: Checkout
@@ -86,3 +87,9 @@ jobs:
           FULL_SCAN:       ${{ github.event.inputs.full_scan }}
           SEND_EMAIL:      ${{ github.event.inputs.send_email }}
         run: python -m backend.run_scan
+
+      - name: Keep keepalive workflow enabled
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable keepalive.yml
