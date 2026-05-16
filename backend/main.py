@@ -13,7 +13,6 @@ from rich.logging import RichHandler
 # Suppress noisy multiprocessing warnings at shutdown
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing")
 from backend.scanner import get_full_market_tickers, screen_stocks, get_active_filters
-from backend.scheduler import start_scheduler
 import yfinance as yf
 import pandas_ta_classic as ta
 import pandas as pd
@@ -26,11 +25,10 @@ logging.basicConfig(
     handlers=[RichHandler(rich_tracebacks=True)]
 )
 
-# Suppress noisy logs from dependencies (already in scanner.py, but good to have here too)
+# Suppress noisy logs from dependencies
 logging.getLogger("yfinance").setLevel(logging.WARNING)
 logging.getLogger("peewee").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 logger = logging.getLogger("main")
 
@@ -66,11 +64,6 @@ def _save_cache(results: list, total: int) -> None:
 
 
 app = FastAPI()
-
-@app.on_event("startup")
-async def startup_event():
-    if not os.getenv("DISABLE_SCHEDULER"):
-        start_scheduler()
 
 # Enable CORS for React frontend
 _allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")

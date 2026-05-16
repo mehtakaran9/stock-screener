@@ -195,20 +195,3 @@ def test_scan_market_serves_from_cache(mock_load):
     assert events[-1]["status"] == "complete"
     assert events[-1].get("from_cache") is True
 
-
-# ── Scheduler startup ─────────────────────────────────────────────────────────
-
-def test_startup_event_calls_scheduler_when_not_disabled(monkeypatch):
-    monkeypatch.delenv("DISABLE_SCHEDULER", raising=False)
-    with patch("backend.main.start_scheduler") as mock_sched:
-        with TestClient(app):
-            pass
-    mock_sched.assert_called_once()
-
-
-def test_startup_event_skips_scheduler_when_disabled(monkeypatch):
-    monkeypatch.setenv("DISABLE_SCHEDULER", "true")
-    with patch("backend.main.start_scheduler") as mock_sched:
-        with TestClient(app):
-            pass
-    mock_sched.assert_not_called()

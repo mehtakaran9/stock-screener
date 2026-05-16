@@ -9,7 +9,5 @@ services:
     envVars:
       - key: ALLOWED_ORIGINS
         value: https://your-app.vercel.app   # replace with your actual Vercel URL after deploy
-      - key: DISABLE_SCHEDULER
-        value: "true"
       - key: PYTHONPATH
         value: /opt/render/project/src

@@ -76,7 +76,7 @@ Every matched stock returns the following fields from `/api/scan`:
 ```
 
 - **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks.
-- **Render.com** hosts the FastAPI backend on the free tier (512 MB RAM; sleeps after 15 min inactivity). APScheduler is disabled on Render via `DISABLE_SCHEDULER=true`; it remains active for local development.
+- **Render.com** hosts the FastAPI backend on the free tier (512 MB RAM; sleeps after 15 min inactivity).
 - **Vercel** hosts the static React build. `VITE_API_URL` points to the Render service.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
 
@@ -89,7 +89,6 @@ stock-screener/
 ├── backend/
 │   ├── main.py            # FastAPI app — /api/scan (SSE), /api/filters (active filter tags), /api/history/{ticker}
 │   ├── scanner.py         # Core screening engine (yfinance + pandas-ta-classic)
-│   ├── scheduler.py       # APScheduler wrapper (local dev only)
 │   ├── run_scan.py        # Standalone entrypoint for GitHub Actions
 │   ├── notifications.py   # Dark-themed HTML email builder + SMTP sender
 │   ├── requirements.txt
@@ -128,12 +127,6 @@ pip install -r backend/requirements.txt
 
 uvicorn backend.main:app --reload
 # API available at http://localhost:8000
-```
-
-The APScheduler fires at 12 PM ET on trading days in local mode. To suppress it:
-
-```bash
-DISABLE_SCHEDULER=true uvicorn backend.main:app --reload
 ```
 
 ### Frontend
@@ -195,7 +188,6 @@ Trigger a run from **Actions → Daily Market Scan → Run workflow** and choose
 | Variable | Value |
 |----------|-------|
 | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` |
-| `DISABLE_SCHEDULER` | `true` |
 | `PYTHONPATH` | `/opt/render/project/src` |
 
 ---
@@ -233,7 +225,6 @@ The web UI exposes all output fields (see table above) and adds an expandable ro
 | `yfinance` | OHLCV data downloads + market cap via `fast_info` |
 | `pandas-ta-classic` | EMA / SMA calculation (NumPy 2.0 compatible fork) |
 | `pandas-market-calendars` | NYSE trading-day check |
-| `apscheduler` | In-process scheduler (local dev only) |
 | `rich` | Coloured terminal logging |
 | `requests` | S&P 500 constituents CSV fetch |
 | `pytz` | Timezone handling for ET cron logic |
