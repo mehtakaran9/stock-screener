@@ -22,12 +22,16 @@ function App() {
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchFilters();
     startScan();
     return () => {
       eventSourceRef.current?.close();
+      if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current);
+      wakeControllerRef.current?.abort();
     };
   }, []);
 
@@ -54,17 +58,21 @@ function App() {
 
     setIsWaking(true);
     const controller = new AbortController();
+    wakeControllerRef.current = controller;
     const wakeTimer = setTimeout(() => controller.abort(), 75_000);
+    wakeTimerRef.current = wakeTimer;
     try {
       await fetch(`${API_URL}/`, { signal: controller.signal });
     } catch {
       clearTimeout(wakeTimer);
+      wakeTimerRef.current = null;
       setIsWaking(false);
       setIsScanning(false);
       setScanWarning('Backend is waking up — please try again in a moment.');
       return;
     }
     clearTimeout(wakeTimer);
+    wakeTimerRef.current = null;
     setIsWaking(false);
 
     const es = new EventSource(`${API_URL}/api/scan`);

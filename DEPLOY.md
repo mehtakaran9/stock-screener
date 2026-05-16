@@ -58,7 +58,7 @@ Trigger a run from **Actions → Daily Market Scan → Run workflow** and choose
 | Variable | Value |
 |----------|-------|
 | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` (stable production URL) |
-| `ALLOWED_ORIGIN_REGEX` | `https://stock-screener[^.]*\.vercel\.app` (covers Vercel preview URLs) |
+| `ALLOWED_ORIGIN_REGEX` | `^https://stock-screener[^.]*\.vercel\.app$` (covers Vercel preview URLs) |
 | `PYTHONPATH` | `/opt/render/project/src` |
 
 ---

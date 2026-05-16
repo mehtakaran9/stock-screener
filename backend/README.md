@@ -17,6 +17,7 @@ FastAPI service that scans S&P 500 stocks, streams results via Server-Sent Event
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `ALLOWED_ORIGINS` | No | `http://localhost:5173` | CORS origin allowlist (comma-separated) |
+| `ALLOWED_ORIGIN_REGEX` | No | — | Regex for additional allowed origins (e.g. Vercel preview URLs). Use anchors: `^https://your-app[^.]*\.vercel\.app$` |
 | `EMAIL_SMTP_HOST` | Yes (email) | — | SMTP server hostname |
 | `EMAIL_SMTP_PORT` | No | `587` | SMTP port |
 | `EMAIL_USER` | Yes (email) | — | Sender address |

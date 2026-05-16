@@ -1,5 +1,6 @@
 import asyncio
 import io
+import pathlib
 import time
 import requests
 import pandas as pd
@@ -11,18 +12,20 @@ from typing import List, Dict, Any, Optional
 from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
-# Configure logging with Rich
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True)]
-)
+# Only configure the root logger if nothing else has done so yet (e.g. main.py).
+# This keeps basicConfig from being a no-op when imported, while still working
+# when scanner.py is run standalone.
+if not logging.root.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(rich_tracebacks=True)]
+    )
 
 logger = logging.getLogger("scanner")
 logger.setLevel(logging.DEBUG)
-import pathlib as _pathlib
-_LOG_PATH = _pathlib.Path(__file__).parent / 'scanner.log'
+_LOG_PATH = pathlib.Path(__file__).parent / 'scanner.log'
 file_handler = RotatingFileHandler(str(_LOG_PATH), maxBytes=5_000_000, backupCount=3)
 file_handler.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
