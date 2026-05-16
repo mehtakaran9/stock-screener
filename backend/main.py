@@ -63,10 +63,14 @@ app = FastAPI()
 _scan_lock = asyncio.Lock()
 
 # Enable CORS for React frontend
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+_allowed_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+]
+_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
+    allow_origin_regex=_origin_regex or None,
     allow_methods=["GET"],
     allow_headers=["*"],
 )

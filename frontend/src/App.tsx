@@ -20,6 +20,7 @@ function App() {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
+  const [isWaking, setIsWaking] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -51,12 +52,20 @@ function App() {
     setScanWarning(null);
     setStartTime(Date.now());
 
+    setIsWaking(true);
+    const controller = new AbortController();
+    const wakeTimer = setTimeout(() => controller.abort(), 75_000);
     try {
-      await fetch(`${API_URL}/`);
+      await fetch(`${API_URL}/`, { signal: controller.signal });
     } catch {
+      clearTimeout(wakeTimer);
+      setIsWaking(false);
       setIsScanning(false);
+      setScanWarning('Backend is waking up — please try again in a moment.');
       return;
     }
+    clearTimeout(wakeTimer);
+    setIsWaking(false);
 
     const es = new EventSource(`${API_URL}/api/scan`);
     eventSourceRef.current = es;
@@ -121,7 +130,7 @@ function App() {
             disabled={isScanning}
           >
             {isScanning ? <Loader2 className="animate-spin" /> : <Play size={18} />}
-            {isScanning ? 'Scanning...' : 'Start Scan'}
+            {isScanning ? (isWaking ? 'Waking up...' : 'Scanning...') : 'Start Scan'}
           </button>
           <button className="btn-secondary" onClick={() => window.location.reload()}>
             <RotateCcw size={18} />

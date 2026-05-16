@@ -63,6 +63,16 @@ jobs:
         working-directory: frontend
         run: npm run test:coverage
 
+      - name: Wake up Render backend
+        if: vars.RENDER_URL != ''
+        continue-on-error: true
+        run: |
+          echo "Pinging ${{ vars.RENDER_URL }} to wake Render free instance..."
+          curl --retry 6 --retry-all-errors --retry-delay 10 --max-time 120 \
+               -fsSo /dev/null "${{ vars.RENDER_URL }}/" \
+            && echo "Backend is up." \
+            || echo "Backend did not respond in time — continuing."
+
       - name: Write recipients file
         env:
           EMAIL_LIST: ${{ vars.EMAIL_LIST }}

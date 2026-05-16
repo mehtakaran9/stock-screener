@@ -75,8 +75,8 @@ describe('App — initial render', () => {
 
   it('renders scan control buttons', () => {
     render(<App />)
-    // Scan auto-starts on mount, so button immediately shows Scanning…
-    expect(screen.getByRole('button', { name: /scanning/i })).toBeInTheDocument()
+    // Auto-start ping is in progress, so button shows "Waking up…" before "Scanning…"
+    expect(screen.getByRole('button', { name: /waking up|scanning/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
   })
 
