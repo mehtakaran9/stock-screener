@@ -7,7 +7,7 @@ on:
   workflow_dispatch:           # Allow manual trigger from GitHub UI
     inputs:
       test_email:
-        description: 'Run the full scan and send results email, skipping the trading day check'
+        description: 'Run the full scan and send results email'
         required: false
         default: 'false'
         type: choice
