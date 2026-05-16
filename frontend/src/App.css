@@ -234,10 +234,18 @@ tr.selected {
   padding: 0.75rem 2rem;
   border-top: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
   font-size: 0.75rem;
-  overflow-x: auto;
+  flex-wrap: wrap;
+}
+
+.filters-label {
+  white-space: nowrap;
+  padding-top: 0.25rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .filter-tag {

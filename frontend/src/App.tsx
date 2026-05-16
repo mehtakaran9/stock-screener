@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Play, Loader2, RotateCcw } from 'lucide-react';
+import { TrendingUp, Play, Loader2, RotateCcw } from 'lucide-react';
 import StockTable from './components/StockTable';
 import './App.css';
 
@@ -135,7 +135,7 @@ function App() {
     <div className="app-container">
       <header>
         <div className="logo">
-          <Search size={24} color="#bb86fc" />
+          <TrendingUp size={24} color="#bb86fc" />
           <h1>StockScreener Pro</h1>
         </div>
         <div className="controls">
@@ -189,7 +189,7 @@ function App() {
       </main>
 
       <div className="filters-summary">
-        <strong>Active Filters:</strong>
+        <span className="filters-label">Active Filters:</span>
         {activeFilters.map((filter, index) => (
           <span key={index} className="filter-tag">{filter}</span>
         ))}

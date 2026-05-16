@@ -8,6 +8,9 @@ dist/
 # Claude Code workspace
 .claude/
 
+# Scan result cache (instance-local, auto-deleted after 10 min)
+backend/scan_cache.json
+
 # Logs
 *.log
 
