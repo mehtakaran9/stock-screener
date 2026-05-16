@@ -14,10 +14,19 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | Market cap | > $1 B | Liquidity — eliminates micro/nano-caps |
 | Price | > $5 | Avoids penny stocks |
 | Volume | > 500 K shares | Confirms institutional participation |
-| 200-day SMA | Price > 75% of SMA200 | Stock is in a long-term uptrend |
-| 8-day EMA | Price > 80% of EMA8 | Stock is riding near-term momentum, not extended |
+| SMA 200 | Price > 75% of SMA200 | Stock is in a long-term uptrend |
+| EMA 8 | Price > 80% of EMA8 | Stock is near near-term momentum, not extended |
+| RSI (14) | 50 – 70 | Momentum confirmed without being overbought |
+| MACD histogram | > 0 | Bullish crossover active (MACD line above signal) |
+| EMA 50 | Price > EMA50 | Medium-term uptrend intact |
+| EMA 200 | Price > EMA200 | Long-term uptrend intact |
+| Bollinger Band | Price < BB upper (20, 2) | Not overextended above the upper band |
 
-Tickers that pass all six filters are surfaced in the UI as potential breakout candidates and emailed at 12 PM ET on NYSE trading days.
+Tickers that pass all eleven filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
+
+Each result also includes computed swing trade levels:
+- **Entry levels**: ① breakout now (current price), ② EMA8 pullback, ③ BB midline (SMA20) deep dip
+- **Stop levels**: ① 1×ATR below entry, ② 0.5×ATR below EMA8, ③ 0.5×ATR below SMA50 (trend break)
 
 ---
 

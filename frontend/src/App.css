@@ -241,3 +241,110 @@ tr.selected {
   align-items: center;
   gap: 4px;
 }
+
+/* ── Sortable column headers ── */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover { color: var(--text-primary); }
+.sort-arrow { opacity: 0.25; font-size: 0.7em; }
+.sort-arrow.sort-active { opacity: 1; color: var(--accent); }
+
+/* ── Volume ratio sub-line ── */
+.vol-ratio { font-size: 0.68rem; margin-top: 2px; }
+
+/* ── RSI badge ── */
+.rsi-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.rsi-value { font-weight: 700; font-size: 0.85rem; line-height: 1; }
+.rsi-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
+
+/* ── Expanded detail row ── */
+.expanded-row { background: var(--bg-card) !important; }
+.expanded-row:hover { background: var(--bg-card) !important; cursor: default; }
+.expanded-row > td { padding: 0; border-bottom: 2px solid var(--accent); }
+
+.expand-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+}
+
+.expand-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.expand-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-secondary);
+}
+
+/* ── MA / BB chips ── */
+.ma-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ma-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
+}
+.ma-chip-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+.ma-chip-value {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ── Swing trade levels table ── */
+.levels-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.levels-table thead th {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  position: static;
+  z-index: 0;
+}
+.levels-table tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+}
+.levels-table tbody tr:last-child td { border-bottom: none; }
+.levels-table tbody td:first-child {
+  color: var(--text-secondary);
+  font-weight: 700;
+  width: 24px;
+}
+.risk-cell { color: var(--text-secondary); }

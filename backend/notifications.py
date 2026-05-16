@@ -118,6 +118,10 @@ def send_scan_results_email(stocks_data: list, is_test: bool = False):
         logger.error("Email configuration missing. Cannot send notification.")
         return
 
+    if not stocks_data and not is_test:
+        logger.info("No scan results — skipping email.")
+        return
+
     html_content = (
         "<!DOCTYPE html><html><body "
         'style="margin:0;padding:0;background-color:#0a0a0a">'

@@ -89,9 +89,14 @@ def get_active_filters():
         f"Day Change > {int(CONFIG['MIN_DAY_CHANGE']*100)}%",
         f"Market Cap > ${CONFIG['MIN_MARKET_CAP']/1_000_000_000:.0f}B",
         f"Price > ${CONFIG['MIN_PRICE']}",
-        f"Above {int(CONFIG['SMA200_RATIO']*100)}% SMA200",
-        f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of 8EMA",
-        f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K"
+        f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K",
+        f"Price > {int(CONFIG['SMA200_RATIO']*100)}% of SMA200",
+        f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of EMA8",
+        "RSI(14) 50–70",
+        "MACD Hist > 0",
+        "Price > EMA50",
+        "Price > EMA200",
+        "Price < BB Upper",
     ]
 
 FALLBACK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
@@ -231,15 +236,117 @@ async def screen_stocks(tickers: List[str]):
                             logger.debug(f"{ticker} below {CONFIG['EMA8_RATIO']*100}% 8EMA range: Price={price}, 8EMA={curr_ema8}")
                             continue
 
+                        # --- Additional indicators (computed only for filter-passing stocks) ---
+
+                        # RSI-14
+                        rsi_series = ta.rsi(df['Close'], length=14)
+                        curr_rsi = round(float(rsi_series.iloc[-1]), 1) if rsi_series is not None and not rsi_series.empty else 50.0
+
+                        # MACD (12,26,9)
+                        macd_result = ta.macd(df['Close'])
+                        if macd_result is not None and not macd_result.empty:
+                            _mc = next((c for c in macd_result.columns if c.startswith('MACD_')), None)
+                            _ms = next((c for c in macd_result.columns if c.startswith('MACDs_')), None)
+                            _mh = next((c for c in macd_result.columns if c.startswith('MACDh_')), None)
+                            curr_macd = round(float(macd_result[_mc].iloc[-1]), 4) if _mc else 0.0
+                            curr_macd_signal = round(float(macd_result[_ms].iloc[-1]), 4) if _ms else 0.0
+                            curr_macd_hist = round(float(macd_result[_mh].iloc[-1]), 4) if _mh else 0.0
+                        else:
+                            curr_macd = curr_macd_signal = curr_macd_hist = 0.0
+
+                        # Filter: RSI must be in [50, 70] — momentum confirmed, not overbought
+                        if not (50 <= curr_rsi <= 70):
+                            logger.debug(f"{ticker} failed RSI: {curr_rsi:.1f}")
+                            continue
+
+                        # Filter: MACD histogram must be positive — bullish crossover active
+                        if curr_macd_hist <= 0:
+                            logger.debug(f"{ticker} failed MACD hist: {curr_macd_hist:.4f}")
+                            continue
+
+                        # EMA50 / EMA200
+                        ema50_series = ta.ema(df['Close'], length=50)
+                        ema200_series = ta.ema(df['Close'], length=200)
+                        curr_ema50 = round(float(ema50_series.iloc[-1]), 2) if ema50_series is not None and not ema50_series.empty else 0.0
+                        curr_ema200 = round(float(ema200_series.iloc[-1]), 2) if ema200_series is not None and not ema200_series.empty else 0.0
+
+                        # Filter: price > EMA50 — medium-term uptrend
+                        if price <= curr_ema50:
+                            logger.debug(f"{ticker} failed EMA50: Price={price}, EMA50={curr_ema50}")
+                            continue
+
+                        # Filter: price > EMA200 — long-term uptrend
+                        if price <= curr_ema200:
+                            logger.debug(f"{ticker} failed EMA200: Price={price}, EMA200={curr_ema200}")
+                            continue
+
+                        # SMA50
+                        curr_sma50 = round(float(df['Close'].rolling(window=50).mean().iloc[-1]), 2)
+
+                        # Bollinger Bands (20, 2)
+                        bb_result = ta.bbands(df['Close'], length=20, std=2)
+                        if bb_result is not None and not bb_result.empty:
+                            _bl = next((c for c in bb_result.columns if c.startswith('BBL_')), None)
+                            _bm = next((c for c in bb_result.columns if c.startswith('BBM_')), None)
+                            _bu = next((c for c in bb_result.columns if c.startswith('BBU_')), None)
+                            curr_bb_lower = round(float(bb_result[_bl].iloc[-1]), 2) if _bl else round(price * 0.97, 2)
+                            curr_bb_middle = round(float(bb_result[_bm].iloc[-1]), 2) if _bm else round(price, 2)
+                            curr_bb_upper = round(float(bb_result[_bu].iloc[-1]), 2) if _bu else round(price * 1.03, 2)
+                        else:
+                            curr_bb_lower = round(price * 0.97, 2)
+                            curr_bb_middle = round(price, 2)
+                            curr_bb_upper = round(price * 1.03, 2)
+
+                        # Filter: price < BB upper — not overextended above the upper band
+                        if price >= curr_bb_upper:
+                            logger.debug(f"{ticker} failed BB upper: Price={price}, BB_upper={curr_bb_upper}")
+                            continue
+
+                        # ATR-14
+                        atr_series = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+                        curr_atr = round(float(atr_series.iloc[-1]), 2) if atr_series is not None and not atr_series.empty else round(price * 0.02, 2)
+
+                        # Volume ratio vs 20-day average
+                        avg_vol_20 = float(df['Volume'].rolling(window=20).mean().iloc[-1])
+                        vol_ratio = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+
+                        # Swing trade levels
+                        # Entry: breakout now → EMA8 pullback → BB midline (SMA20) deep pullback
+                        # Stop:  1 ATR below entry price → below EMA8 → below SMA50 (trend break)
+                        entry1 = round(price, 2)
+                        entry2 = round(curr_ema8, 2)
+                        entry3 = round(curr_bb_middle, 2)
+                        stop1 = round(price - 1.0 * curr_atr, 2)
+                        stop2 = round(curr_ema8 - 0.5 * curr_atr, 2)
+                        stop3 = round(curr_sma50 - 0.5 * curr_atr, 2)
+
                         result = {
                             "ticker": ticker,
                             "exchange": exchange,
                             "price": round(float(price), 2),
                             "change": round(float(day_change * 100), 2),
                             "volume": int(volume),
+                            "vol_ratio": vol_ratio,
                             "market_cap": int(market_cap),
+                            "rsi": curr_rsi,
+                            "macd": curr_macd,
+                            "macd_signal": curr_macd_signal,
+                            "macd_hist": curr_macd_hist,
                             "ema8": round(float(curr_ema8), 2),
-                            "sma200": round(float(curr_sma200), 2)
+                            "ema50": curr_ema50,
+                            "ema200": curr_ema200,
+                            "sma50": curr_sma50,
+                            "sma200": round(float(curr_sma200), 2),
+                            "bb_upper": curr_bb_upper,
+                            "bb_middle": curr_bb_middle,
+                            "bb_lower": curr_bb_lower,
+                            "atr14": curr_atr,
+                            "entry1": entry1,
+                            "entry2": entry2,
+                            "entry3": entry3,
+                            "stop1": stop1,
+                            "stop2": stop2,
+                            "stop3": stop3,
                         }
                         logger.info(f"[bold green]Found breakout:[/bold green] {ticker} at ${result['price']} ({result['change']}%)")
                         yield result
