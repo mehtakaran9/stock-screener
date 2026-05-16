@@ -5,7 +5,7 @@ pandas==2.3.3
 pandas-ta-classic==0.5.44
 python-multipart==0.0.28
 httpx==0.28.1
-requests==2.32.4
+requests==2.34.2
 rich==15.0.0
 pandas-market-calendars==4.6.0
 pytz==2026.2
