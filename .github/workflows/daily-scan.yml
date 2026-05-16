@@ -43,6 +43,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
+      - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest backend/ -v
+
       - name: Write recipients file
         env:
           EMAIL_LIST: ${{ vars.EMAIL_LIST }}

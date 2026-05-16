@@ -4,6 +4,9 @@
   <a href="https://github.com/mehtakaran9/stock-screener/actions/workflows/daily-scan.yml">
     <img src="https://github.com/mehtakaran9/stock-screener/actions/workflows/daily-scan.yml/badge.svg?branch=main" alt="Daily Scan" />
   </a>
+  <a href="https://github.com/mehtakaran9/stock-screener/actions/workflows/daily-scan.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/mehtakaran9/stock-screener/daily-scan.yml?branch=main&label=tests" alt="Tests" />
+  </a>
   <a href="https://www.python.org/">
     <img src="https://img.shields.io/badge/python-3.11-3776ab.svg" alt="Python 3.11" />
   </a>
