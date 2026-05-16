@@ -1,0 +1,62 @@
+name: Add Email Subscriber
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: 'Email address to add to the subscriber list'
+        required: true
+        type: string
+      issue_number:
+        description: 'Issue number to close after adding (leave blank to skip)'
+        required: false
+        type: string
+
+jobs:
+  add-subscriber:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Validate email format
+        run: |
+          EMAIL="${{ github.event.inputs.email }}"
+          if ! echo "$EMAIL" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
+            echo "::error::Invalid email format: $EMAIL"
+            exit 1
+          fi
+
+      - name: Check for duplicate and update list
+        id: update
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          EMAIL_LIST: ${{ vars.EMAIL_LIST }}
+          NEW_EMAIL: ${{ github.event.inputs.email }}
+        run: |
+          if echo "$EMAIL_LIST" | grep -qFx "$NEW_EMAIL"; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NEW_EMAIL is already subscribed — skipping."
+          else
+            if [ -z "$EMAIL_LIST" ]; then
+              NEW_LIST="$NEW_EMAIL"
+            else
+              NEW_LIST="$(printf '%s\n%s' "$EMAIL_LIST" "$NEW_EMAIL")"
+            fi
+            gh variable set EMAIL_LIST --body "$NEW_LIST" --repo "$GITHUB_REPOSITORY"
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Added $NEW_EMAIL to EMAIL_LIST."
+          fi
+
+      - name: Comment and close issue
+        if: ${{ github.event.inputs.issue_number != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.update.outputs.duplicate }}" = "true" ]; then
+            MSG="⚠️ That email address is already on the subscriber list — no change made."
+          else
+            MSG="✅ Done! You'll receive the daily scan results at market close on NYSE trading days."
+          fi
+          gh issue comment "${{ github.event.inputs.issue_number }}" --body "$MSG" --repo "$GITHUB_REPOSITORY"
+          gh issue close "${{ github.event.inputs.issue_number }}" --repo "$GITHUB_REPOSITORY"

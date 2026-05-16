@@ -1,0 +1,22 @@
+name: Subscribe to Daily Scan Email
+description: Request to receive the daily market scan results by email
+labels: ["subscribe"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Subscribe to StockScreener Pro
+
+        **Do not include your email address here — this issue is publicly visible.**
+
+        Once a maintainer approves your request they will contact you privately
+        (via your GitHub notification email) to collect your address.
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Confirmation
+      options:
+        - label: I want to subscribe to the daily scan email (sent at market close on NYSE trading days)
+          required: true
+        - label: I understand this issue is public and my GitHub username will be visible
+          required: true

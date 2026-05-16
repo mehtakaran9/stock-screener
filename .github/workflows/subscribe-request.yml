@@ -1,0 +1,37 @@
+name: Subscription Request Approved
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  acknowledge:
+    # Only run when the 'approved' label is added to a 'subscribe' issue
+    if: >
+      github.event.label.name == 'approved' &&
+      contains(github.event.issue.labels.*.name, 'subscribe')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Verify approver is admin
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.sender.login,
+            });
+            if (data.permission !== 'admin') {
+              core.setFailed(`${context.payload.sender.login} is not a repo admin — approval rejected.`);
+            }
+
+      - name: Post acknowledgement comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "✅ **Request approved.** A maintainer will contact you via your GitHub notification email to collect your address and add you to the list." \
+            --repo ${{ github.repository }}

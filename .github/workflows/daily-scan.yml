@@ -45,8 +45,8 @@ jobs:
 
       - name: Write recipients file
         env:
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        run: echo "$EMAIL_TO" > backend/recipients.txt
+          EMAIL_LIST: ${{ vars.EMAIL_LIST }}
+        run: echo "$EMAIL_LIST" > backend/recipients.txt
 
       - name: Run scan
         env:
