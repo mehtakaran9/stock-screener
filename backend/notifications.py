@@ -105,15 +105,16 @@ def send_scan_results_email(stocks_data: list, is_test: bool = False):
     """
     Formats scan results into an HTML table and sends via SMTP.
     Requires: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO
+    EMAIL_TO accepts a comma-separated list of addresses; each gets a separate email.
     Pass is_test=True to add a banner noting the data is for testing only.
     """
     smtp_host = os.getenv("EMAIL_SMTP_HOST")
     smtp_port = int(os.getenv("EMAIL_SMTP_PORT", 587))
     smtp_user = os.getenv("EMAIL_USER")
     smtp_pass = os.getenv("EMAIL_PASSWORD")
-    email_to = os.getenv("EMAIL_TO")
+    recipients = [e.strip() for e in os.getenv("EMAIL_TO", "").split(",") if e.strip()]
 
-    if not all([smtp_host, smtp_user, smtp_pass, email_to]):
+    if not all([smtp_host, smtp_user, smtp_pass, recipients]):
         logger.error("Email configuration missing. Cannot send notification.")
         return
 
@@ -127,20 +128,20 @@ def send_scan_results_email(stocks_data: list, is_test: bool = False):
 
     subject = "Stock Screener — Test Email (Dummy Data)" if is_test else "Stock Screener Daily Scan Results"
 
-    msg = MIMEMultipart()
-    msg['Subject'] = subject
-    msg['From'] = smtp_user
-    msg['To'] = email_to
-    msg.attach(MIMEText(html_content, 'html'))
-
     for attempt in range(3):
         try:
             with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-                logger.info(f"Email sent successfully to {email_to}")
-                return
+                for recipient in recipients:
+                    msg = MIMEMultipart()
+                    msg['Subject'] = subject
+                    msg['From'] = smtp_user
+                    msg['To'] = recipient
+                    msg.attach(MIMEText(html_content, 'html'))
+                    server.send_message(msg)
+                    logger.info(f"Email sent to {recipient}")
+            return
         except Exception as e:
             if attempt < 2:
                 wait = 30 * (attempt + 1)
