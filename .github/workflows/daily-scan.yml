@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
-      contents: read
+      contents: write   # needed to push activity ping to keepalive-pings branch
       actions: write
 
     steps:
@@ -93,3 +93,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow enable keepalive.yml
+
+      - name: Push activity commit to reset 60-day inactivity clock
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > last_scan.txt
+          git add last_scan.txt
+          git commit -m "chore: activity ping [skip ci]"
+          git push origin HEAD:refs/heads/keepalive-pings --force \
+            || echo "::warning::Activity push failed — 60-day clock may not reset"
