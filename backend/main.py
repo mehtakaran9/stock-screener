@@ -48,7 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Stock Screener API is running. Visit /docs for API documentation."}
 
