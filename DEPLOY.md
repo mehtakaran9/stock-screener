@@ -34,7 +34,7 @@ alice@example.com
 bob@example.com
 ```
 
-The daily scan writes this variable to `backend/recipients.txt` at runtime. Use the [Add Email Subscriber](../../actions/workflows/add-subscriber.yml) workflow to manage the list going forward.
+The daily scan writes this variable to `backend/recipients.txt` at runtime. Use the **Actions → Add Email Subscriber → Run workflow** button to manage the list going forward.
 
 ### Manual workflow dispatch options
 

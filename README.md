@@ -84,7 +84,7 @@ flowchart TD
     Render -->|SSE stream| Vercel
 ```
 
-- **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks.
+- **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks. Recipients are stored in the `EMAIL_LIST` Actions variable (one address per line) and written to `backend/recipients.txt` at runtime.
 - **Render.com** hosts the FastAPI backend on the free tier (512 MB RAM; sleeps after 15 min inactivity).
 - **Vercel** hosts the static React build. `VITE_API_URL` points to the Render service.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
@@ -94,7 +94,7 @@ flowchart TD
 ## Local development
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
 
 ### Backend
@@ -129,6 +129,32 @@ python3 -m pytest backend/ -v
 
 > For cloud deployment instructions see [DEPLOY.md](DEPLOY.md).
 
+---
+
+## Adding to the subscriber list
+
+The daily scan email is sent to everyone in the `EMAIL_LIST` GitHub Actions variable. There are two ways to add a recipient:
+
+### Option 1 — Admin: edit the variable directly
+
+Go to **Settings → Secrets and variables → Actions → Variables tab → EMAIL_LIST → Edit** and append the address (one per line). Takes effect on the next workflow run.
+
+### Option 2 — Public request via GitHub Issues
+
+This repo has a structured issue form that lets anyone request to be added without exposing their email publicly.
+
+**As a subscriber:**
+1. Open a new issue using the **Subscribe to Daily Scan Email** template.
+2. Check the consent boxes and submit — do not include your email address in the issue.
+3. A maintainer will approve the request and contact you privately via your GitHub notification email to collect your address.
+
+**As the admin (after receiving the address privately):**
+1. Go to **Actions → Add Email Subscriber → Run workflow**.
+2. Enter the email address and optionally the issue number (to auto-close it with a confirmation comment).
+3. Click **Run workflow** — the `EMAIL_LIST` variable is updated immediately.
+
+---
+
 ## Email format
 
 Scan results are delivered as a dark-themed HTML email that mirrors the web UI:
@@ -136,7 +162,7 @@ Scan results are delivered as a dark-themed HTML email that mirrors the web UI:
 - **Tickers** are hyperlinked to their Google Finance page (`google.com/finance/quote/AAPL:NASDAQ`)
 - **Change %** is colour-coded: teal for gains, red for losses
 - **Volume** and **Market Cap** use compact notation (`52.30M`, `3.29T`)
-- Columns: Ticker · Price · Change % · Volume · Market Cap · EMA8 · SMA200
+- Columns: Ticker · Price · Change % · Volume · Market Cap · RSI · MACD
 - When `full_scan=false, send_email=true` is triggered, an amber banner labels the data as a test
 
 The web UI exposes all output fields (see table above) and adds an expandable row per ticker showing MA chips, Bollinger Band levels, and the full swing trade levels table. The email intentionally sends only the 7 summary columns.

@@ -23,20 +23,28 @@ This project is a **Technical Stock Screener** that identifies high-probability 
 ## How
 ### Architecture:
 1.  **Backend Scanning Engine (`backend/scanner.py`)**: 
-    - Fetches S&P 500 constituents.
-    - Uses `yfinance` to download 2 years of daily OHLCV data in batches.
-    - Applies vectorized technical filters using `pandas` and `pandas-ta-classic`.
+    - Fetches S&P 500 constituents from a public CSV; falls back to a 10-ticker list if unavailable.
+    - Uses `yfinance` to download 2 years of daily OHLCV data in chunks of 50 tickers.
+    - Applies the eleven technical filters sequentially using `pandas` and `pandas-ta-classic`.
 2.  **Streaming API (`backend/main.py`)**: 
-    - Exposes a `/api/scan` endpoint that uses `StreamingResponse` to push JSON objects to the frontend as stocks are identified.
+    - Exposes `/api/scan` — a `StreamingResponse` (SSE) endpoint that pushes progress and result events to the frontend as stocks are identified. Results are cached for 10 minutes (`backend/scan_cache.json`). A module-level `asyncio.Lock` ensures only one full scan runs at a time.
+    - Exposes `/api/filters` — returns the active filter list for display in the UI.
 3.  **Frontend Dashboard (`frontend/src/App.tsx`)**:
-    - Consumes the SSE stream and updates the local state Reactively.
-    - Displays results in a sortable, expandable table with MA chips and swing trade levels in the expanded row.
+    - Consumes the SSE stream and updates state reactively.
+    - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row.
+    - Shows an amber warning banner if the S&P 500 CSV was unavailable and fallback tickers were used.
+4.  **GitHub Actions scan + email (`backend/run_scan.py`, `backend/notifications.py`)**:
+    - `run_scan.py` runs as a GitHub Actions cron job (12 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
+    - `notifications.py` builds a dark-themed HTML email (7 summary columns + expanded swing levels) and sends it via SMTP to all addresses in the `EMAIL_LIST` Actions variable.
+    - Three workflows manage subscriptions: `daily-scan.yml` (scan + email), `add-subscriber.yml` (admin adds an address), `subscribe-request.yml` (fires when an admin approves a subscribe issue).
 
 ## How to Run
 ### 1. Backend
 ```bash
 # From project root
-source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
 ```
 The backend will be available at `http://localhost:8000`.
@@ -44,6 +52,7 @@ The backend will be available at `http://localhost:8000`.
 ### 2. Frontend
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 The frontend will be available at `http://localhost:5173`.
