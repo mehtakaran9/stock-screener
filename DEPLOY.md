@@ -27,7 +27,7 @@ Go to **Settings → Secrets and variables → Actions → Variables tab** and a
 | Variable | Value |
 |----------|-------|
 | `EMAIL_LIST` | Seed recipient list — one address per line |
-| `RENDER_URL` | `https://your-service.onrender.com` (enables GHA warm-up step) |
+| `RENDER_URL` | `https://your-service.onrender.com` — enables the **Render Keepalive** workflow, which pings the backend at 11:50 AM ET on weekdays so it is warm before the noon scan. Note: GitHub disables scheduled workflows after 60 days of repository inactivity; push a commit or manually trigger the workflow to re-enable it. |
 
 Example initial value:
 ```

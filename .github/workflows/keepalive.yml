@@ -1,0 +1,24 @@
+name: Render Keepalive
+
+on:
+  schedule:
+    - cron: '50 15 * * 1-5'  # 11:50 AM EDT (Mar–Nov, UTC-4)
+    - cron: '50 16 * * 1-5'  # 11:50 AM EST (Nov–Mar, UTC-5)
+  workflow_dispatch:           # manual trigger for testing
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: true     # deduplicate during DST transition weeks
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+      - name: Ping Render backend
+        if: vars.RENDER_URL != ''
+        run: |
+          curl -fsSo /dev/null --max-time 90 "${{ vars.RENDER_URL }}/" \
+            && echo "Backend is up." \
+            || echo "Ping failed — Render may be cold-starting."
