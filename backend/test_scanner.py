@@ -1,9 +1,16 @@
+import asyncio
 import pytest
 import pandas as pd
 import numpy as np
 import pandas_ta_classic as ta
 from backend.scanner import screen_stocks, get_full_market_tickers
 from unittest.mock import patch, MagicMock
+
+def run_screen(tickers):
+    """Collect all items from the async screen_stocks generator synchronously."""
+    async def _collect():
+        return [item async for item in screen_stocks(tickers)]
+    return asyncio.run(_collect())
 
 @patch('pandas.read_csv')
 def test_get_full_market_tickers_success(mock_read_csv):
@@ -76,7 +83,7 @@ def test_screen_stocks_success(mock_ticker, mock_download):
     }
     mock_ticker.return_value = mock_ticker_instance
     
-    results = [r for r in screen_stocks(['AAPL']) if isinstance(r, dict) and 'status' not in r]
+    results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     
     assert len(results) == 1
     assert results[0]['ticker'] == 'AAPL'
@@ -95,7 +102,7 @@ def test_screen_stocks_fails_market_cap(mock_ticker, mock_download):
     }
     mock_ticker.return_value = mock_ticker_instance
     
-    results = [r for r in screen_stocks(['AAPL']) if isinstance(r, dict) and 'status' not in r]
+    results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
 
 @patch('yfinance.download')
@@ -111,7 +118,7 @@ def test_screen_stocks_fails_day_change(mock_ticker, mock_download):
     }
     mock_ticker.return_value = mock_ticker_instance
     
-    results = [r for r in screen_stocks(['AAPL']) if isinstance(r, dict) and 'status' not in r]
+    results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0
 
 @patch('yfinance.download')
@@ -127,5 +134,5 @@ def test_screen_stocks_fails_volume(mock_ticker, mock_download):
     }
     mock_ticker.return_value = mock_ticker_instance
     
-    results = [r for r in screen_stocks(['AAPL']) if isinstance(r, dict) and 'status' not in r]
+    results = [r for r in run_screen(['AAPL']) if isinstance(r, dict) and 'status' not in r]
     assert len(results) == 0

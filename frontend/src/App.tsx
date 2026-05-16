@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Play, Loader2, RotateCcw } from 'lucide-react';
 import StockTable from './components/StockTable';
 import './App.css';
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 interface Stock {
   ticker: string;
@@ -25,15 +27,19 @@ function App() {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     fetchFilters();
     startScan();
+    return () => {
+      eventSourceRef.current?.close();
+    };
   }, []);
 
   const fetchFilters = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/filters');
+      const response = await fetch(`${API_URL}/api/filters`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setActiveFilters(data.filters);
@@ -44,34 +50,41 @@ function App() {
 
   const startScan = () => {
     if (isScanning) return;
-    
+
     setStocks([]);
     setIsScanning(true);
     setProgress(null);
     setStartTime(Date.now());
 
-    const eventSource = new EventSource('http://localhost:8000/api/scan');
+    const es = new EventSource(`${API_URL}/api/scan`);
+    eventSourceRef.current = es;
 
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.status === 'progress') {
-        setProgress({ total: data.total, current: data.current, ticker: data.ticker });
-      } else if (data.status === 'result') {
-        setStocks((prev) => {
-          if (prev.find(s => s.ticker === data.data.ticker)) return prev;
-          return [...prev, data.data];
-        });
-      } else if (data.status === 'complete') {
-        setIsScanning(false);
-        eventSource.close();
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.status === 'progress') {
+          setProgress({ total: data.total, current: data.current, ticker: data.ticker });
+        } else if (data.status === 'result') {
+          setStocks((prev) => {
+            if (prev.find(s => s.ticker === data.data.ticker)) return prev;
+            return [...prev, data.data];
+          });
+        } else if (data.status === 'complete') {
+          setIsScanning(false);
+          es.close();
+          eventSourceRef.current = null;
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e);
       }
     };
 
-    eventSource.onerror = (err) => {
+    es.onerror = (err) => {
       console.error('SSE Error:', err);
       setIsScanning(false);
-      eventSource.close();
+      es.close();
+      eventSourceRef.current = null;
     };
   };
 
@@ -136,10 +149,7 @@ function App() {
             )}
           </div>
           
-          <StockTable 
-            stocks={stocks} 
-            onSelect={() => {}} 
-          />
+          <StockTable stocks={stocks} />
         </div>
       </main>
 

@@ -13,7 +13,7 @@ interface Stock {
 
 interface StockTableProps {
   stocks: Stock[];
-  onSelect: (ticker: string) => void;
+  onSelect?: (ticker: string) => void;
   selectedTicker?: string;
 }
 
@@ -46,9 +46,9 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, onSelect, selectedTicke
             </tr>
           ) : (
             stocks.map((stock) => (
-              <tr 
-                key={stock.ticker} 
-                onClick={() => onSelect(stock.ticker)}
+              <tr
+                key={stock.ticker}
+                onClick={() => onSelect?.(stock.ticker)}
                 className={selectedTicker === stock.ticker ? 'selected' : ''}
               >
                 <td className="ticker-cell">{stock.ticker}</td>

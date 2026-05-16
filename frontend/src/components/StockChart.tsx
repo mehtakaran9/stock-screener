@@ -1,8 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import { createChart, ColorType, CandlestickSeries, LineSeries, type CandlestickData, type LineData, type Time } from 'lightweight-charts';
 
+interface ChartDataPoint {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  ema8: number | null;
+  sma200: number | null;
+}
+
 interface StockChartProps {
-  data: any[];
+  data: ChartDataPoint[];
   ticker: string;
 }
 
