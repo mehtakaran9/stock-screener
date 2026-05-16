@@ -60,6 +60,7 @@ def _save_cache(results: list, total: int) -> None:
 
 
 app = FastAPI()
+_scan_lock = asyncio.Lock()
 
 # Enable CORS for React frontend
 _allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
@@ -91,23 +92,35 @@ async def scan_market():
             yield f"data: {json.dumps({'status': 'complete', 'total': total, 'from_cache': True})}\n\n"
             return
 
-        tickers, is_full = await asyncio.to_thread(get_full_market_tickers)
-        if not is_full:
-            yield f"data: {json.dumps({'status': 'warning', 'message': 'S&P 500 list unavailable; scanning fallback tickers only.'})}\n\n"
-        target_tickers = tickers[:500]
+        async with _scan_lock:
+            # Re-check cache: another request may have finished while we waited for the lock
+            cached = await asyncio.to_thread(_load_cache)
+            if cached is not None:
+                results, total = cached
+                logger.info(f"Serving {len(results)} results from cache (post-lock)")
+                yield f"data: {json.dumps({'status': 'progress', 'total': total, 'current': total})}\n\n"
+                for stock in results:
+                    yield f"data: {json.dumps({'status': 'result', 'data': stock})}\n\n"
+                yield f"data: {json.dumps({'status': 'complete', 'total': total, 'from_cache': True})}\n\n"
+                return
 
-        yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': 0})}\n\n"
+            tickers, is_full = await asyncio.to_thread(get_full_market_tickers)
+            if not is_full:
+                yield f"data: {json.dumps({'status': 'warning', 'message': 'S&P 500 list unavailable; scanning fallback tickers only.'})}\n\n"
+            target_tickers = tickers[:500]
 
-        results: list = []
-        async for update in screen_stocks(target_tickers):
-            if isinstance(update, dict):
-                if update.get('status') == 'progress':
-                    yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': update['current'], 'ticker': update.get('ticker')})}\n\n"
-                else:
-                    results.append(update)
-                    yield f"data: {json.dumps({'status': 'result', 'data': update})}\n\n"
+            yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': 0})}\n\n"
 
-        await asyncio.to_thread(_save_cache, results, len(target_tickers))
+            results: list = []
+            async for update in screen_stocks(target_tickers):
+                if isinstance(update, dict):
+                    if update.get('status') == 'progress':
+                        yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': update['current'], 'ticker': update.get('ticker')})}\n\n"
+                    else:
+                        results.append(update)
+                        yield f"data: {json.dumps({'status': 'result', 'data': update})}\n\n"
+
+            await asyncio.to_thread(_save_cache, results, len(target_tickers))
         yield f"data: {json.dumps({'status': 'complete', 'total': len(target_tickers)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

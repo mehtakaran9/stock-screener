@@ -21,7 +21,9 @@ logging.basicConfig(
 
 logger = logging.getLogger("scanner")
 logger.setLevel(logging.DEBUG)
-file_handler = RotatingFileHandler('scanner.log', maxBytes=5_000_000, backupCount=3)
+import pathlib as _pathlib
+_LOG_PATH = _pathlib.Path(__file__).parent / 'scanner.log'
+file_handler = RotatingFileHandler(str(_LOG_PATH), maxBytes=5_000_000, backupCount=3)
 file_handler.setLevel(logging.DEBUG)
 file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(file_formatter)

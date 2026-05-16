@@ -2,13 +2,14 @@
 """
 Standalone scan runner for GitHub Actions cron.
 Usage: python -m backend.run_scan
-Required env vars: EMAIL_SMTP_HOST, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO
+Required env vars: EMAIL_SMTP_HOST, EMAIL_USER, EMAIL_PASSWORD
 Optional env vars:
   EMAIL_SMTP_PORT  default 587
   FULL_SCAN        'true' = run scan + skip trading day check (manual trigger)
                    'false' = skip scan
                    ''      = scheduled run (apply trading day check)
   SEND_EMAIL       'false' = suppress email; anything else = send if results found
+Recipients are read from backend/recipients.txt (one address per line).
 """
 import asyncio
 import logging
