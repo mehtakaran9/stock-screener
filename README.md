@@ -1,5 +1,20 @@
 # StockScreener Pro
 
+<p align="center">
+  <a href="https://github.com/mehtakaran9/stock-screener/actions/workflows/daily-scan.yml">
+    <img src="https://github.com/mehtakaran9/stock-screener/actions/workflows/daily-scan.yml/badge.svg?branch=main" alt="Daily Scan" />
+  </a>
+  <a href="https://www.python.org/">
+    <img src="https://img.shields.io/badge/python-3.11-3776ab.svg" alt="Python 3.11" />
+  </a>
+  <a href="https://react.dev/">
+    <img src="https://img.shields.io/badge/react-19-61dafb.svg" alt="React 19" />
+  </a>
+  <a href="https://www.typescriptlang.org/">
+    <img src="https://img.shields.io/badge/TypeScript-strict-3178c6.svg" alt="TypeScript strict" />
+  </a>
+</p>
+
 A real-time technical stock screener that identifies momentum breakout setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
 ---
