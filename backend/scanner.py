@@ -45,48 +45,61 @@ def screen_stocks(tickers: List[str]):
             
             for ticker in chunk:
                 try:
-                    df = data[ticker].dropna() if len(chunk) > 1 else data.dropna()
-                    if df.empty or len(df) < 252: # Need at least a year of data
+                    # Robust extraction for multi-index vs single index
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if ticker not in data.columns.levels[0]: continue
+                        df = data[ticker].dropna()
+                    else:
+                        df = data.dropna()
+                    
+                    if len(df) < 200: # Need at least 200 days for SMA200
                         continue
                     
                     info = all_info.get(ticker, {})
                     if not isinstance(info, dict): continue
                     
                     market_cap = info.get('marketCap', 0)
-                    price = df['Close'].iloc[-1]
-                    prev_close = df['Close'].iloc[-2]
+                    price = float(df['Close'].iloc[-1])
+                    prev_close = float(df['Close'].iloc[-2])
                     day_change = (price - prev_close) / prev_close
-                    volume = df['Volume'].iloc[-1]
+                    volume = int(df['Volume'].iloc[-1])
                     
                     # 1. Market Cap > 1B and Price > 5
                     if market_cap < 1_000_000_000 or price <= 5:
+                        logger.debug(f"{ticker} failed MC/Price: {market_cap}, {price}")
                         continue
                     
                     # 2. Day Change > 3%
                     if day_change <= 0.03:
+                        logger.debug(f"{ticker} failed Change: {day_change}")
                         continue
                         
                     # 3. Volume > 500K
                     if volume < 500_000:
+                        logger.debug(f"{ticker} failed Volume: {volume}")
                         continue
 
                     # Technical Indicators
                     # 4. Above 200 SMA
-                    sma200 = df['Close'].rolling(window=200).mean()
-                    if price <= sma200.iloc[-1]:
+                    sma200_series = df['Close'].rolling(window=200).mean()
+                    curr_sma200 = float(sma200_series.iloc[-1])
+                    if price <= curr_sma200:
+                        logger.debug(f"{ticker} failed SMA200: {price} <= {curr_sma200}")
                         continue
                     
                     # 5. 1Y Resistance Breakout
-                    # 1Y high (excluding today)
-                    one_year_high = df['High'].iloc[-253:-1].max()
+                    one_year_high = float(df['High'].iloc[:-1].tail(252).max())
                     if price <= one_year_high:
+                        logger.debug(f"{ticker} failed 1Y High: {price} <= {one_year_high}")
                         continue
                         
                     # 6. Riding 8EMA
-                    # Price above 8EMA and within 2% of it
-                    ema8 = ta.ema(df['Close'], length=8)
-                    curr_ema8 = ema8.iloc[-1]
+                    ema8_series = ta.ema(df['Close'], length=8)
+                    if ema8_series is None or ema8_series.empty: continue
+                    curr_ema8 = float(ema8_series.iloc[-1])
+                    
                     if price < curr_ema8 or price > curr_ema8 * 1.02:
+                        logger.debug(f"{ticker} failed EMA8: {price}, EMA8: {curr_ema8}")
                         continue
 
                     result = {
@@ -96,7 +109,7 @@ def screen_stocks(tickers: List[str]):
                         "volume": int(volume),
                         "market_cap": int(market_cap),
                         "ema8": round(float(curr_ema8), 2),
-                        "sma200": round(float(sma200.iloc[-1]), 2),
+                        "sma200": round(float(curr_sma200), 2),
                         "high1y": round(float(one_year_high), 2)
                     }
                     yield result

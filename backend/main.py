@@ -58,8 +58,10 @@ async def get_history(ticker: str):
     # Convert to format suitable for lightweight-charts (timestamp in seconds)
     history = []
     for _, row in df.iterrows():
+        # yfinance reset_index usually names the date column 'Date' or 'index' depending on version
+        date_col = 'Date' if 'Date' in df.columns else 'index'
         history.append({
-            "time": int(row['Date'].timestamp()),
+            "time": int(row[date_col].timestamp()),
             "open": float(row['Open']),
             "high": float(row['High']),
             "low": float(row['Low']),
