@@ -317,7 +317,7 @@ def send_scan_results_email(stocks_data: list, is_test: bool = False):
                     msg['To'] = recipient
                     msg.attach(MIMEText(html_content, 'html'))
                     server.send_message(msg)
-                    logger.info(f"Email sent to {recipient}")
+                    logger.info("Email sent to recipient")
             return
         except Exception as e:
             if attempt < 2:

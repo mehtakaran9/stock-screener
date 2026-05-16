@@ -9,5 +9,7 @@ services:
     envVars:
       - key: ALLOWED_ORIGINS
         value: https://your-app.vercel.app   # replace with your actual Vercel URL after deploy
+      - key: ALLOWED_ORIGIN_REGEX
+        value: https://stock-screener[^.]*\.vercel\.app
       - key: PYTHONPATH
         value: /opt/render/project/src

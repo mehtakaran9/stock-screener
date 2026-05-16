@@ -157,6 +157,7 @@ describe('App — SSE events', () => {
     const es = await renderAndWaitForES()
     act(() => { es.emitError() })
     await waitFor(() => expect(screen.getByRole('button', { name: /start scan/i })).not.toBeDisabled())
+    expect(screen.getByText(/Scan connection lost/)).toBeInTheDocument()
   })
 })
 

@@ -263,4 +263,4 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
   );
 };
 
-export default StockTable;
+export default React.memo(StockTable);

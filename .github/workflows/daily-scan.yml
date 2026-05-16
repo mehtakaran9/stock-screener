@@ -28,6 +28,8 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -72,6 +74,12 @@ jobs:
                -fsSo /dev/null "${{ vars.RENDER_URL }}/" \
             && echo "Backend is up." \
             || echo "Backend did not respond in time — continuing."
+
+      - name: Validate email configuration
+        run: |
+          [ -n "${{ secrets.EMAIL_SMTP_HOST }}" ] || { echo "::error::EMAIL_SMTP_HOST secret not set"; exit 1; }
+          [ -n "${{ secrets.EMAIL_USER }}" ]      || { echo "::error::EMAIL_USER secret not set"; exit 1; }
+          [ -n "${{ secrets.EMAIL_PASSWORD }}" ]  || { echo "::error::EMAIL_PASSWORD secret not set"; exit 1; }
 
       - name: Write recipients file
         env:

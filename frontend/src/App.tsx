@@ -97,6 +97,7 @@ function App() {
 
     es.onerror = (err) => {
       console.error('SSE Error:', err);
+      setScanWarning('Scan connection lost — please try again.');
       setIsScanning(false);
       es.close();
       eventSourceRef.current = null;
@@ -107,6 +108,7 @@ function App() {
     if (!progress || !startTime || progress.current === 0) return 'Calculating...';
 
     const elapsed = (Date.now() - startTime) / 1000;
+    if (elapsed === 0) return 'Calculating...';
     const rate = progress.current / elapsed;
     const remaining = (progress.total - progress.current) / rate;
 
@@ -124,10 +126,11 @@ function App() {
           <h1>StockScreener Pro</h1>
         </div>
         <div className="controls">
-          <button 
-            className={`btn-primary ${isScanning ? 'loading' : ''}`} 
-            onClick={startScan} 
+          <button
+            className={`btn-primary ${isScanning ? 'loading' : ''}`}
+            onClick={startScan}
             disabled={isScanning}
+            aria-busy={isScanning}
           >
             {isScanning ? <Loader2 className="animate-spin" /> : <Play size={18} />}
             {isScanning ? (isWaking ? 'Waking up...' : 'Scanning...') : 'Start Scan'}
@@ -179,8 +182,8 @@ function App() {
 
       <div className="filters-summary">
         <span className="filters-label">Active Filters:</span>
-        {activeFilters.map((filter, index) => (
-          <span key={index} className="filter-tag">{filter}</span>
+        {activeFilters.map((filter) => (
+          <span key={filter} className="filter-tag">{filter}</span>
         ))}
       </div>
     </div>
