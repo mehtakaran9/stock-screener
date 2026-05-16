@@ -8,8 +8,11 @@ dist/
 # Claude Code workspace
 .claude/
 
-# Scan result cache (instance-local, auto-deleted after 10 min)
+# Scan result cache (instance-local, expires after 10 min)
 backend/scan_cache.json
+
+# Email recipient list (one address per line — do not commit)
+backend/recipients.txt
 
 # Logs
 *.log

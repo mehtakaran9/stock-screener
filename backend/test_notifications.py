@@ -21,8 +21,16 @@ _SMTP_ENV = {
     "EMAIL_SMTP_PORT": "587",
     "EMAIL_USER": "user@example.com",
     "EMAIL_PASSWORD": "secret",
-    "EMAIL_TO": "a@example.com",
 }
+
+
+@pytest.fixture
+def recipients_file(tmp_path, monkeypatch):
+    """Patch RECIPIENTS_FILE to a temp file pre-populated with one address."""
+    rf = tmp_path / "recipients.txt"
+    rf.write_text("a@example.com\n")
+    monkeypatch.setattr("backend.notifications.RECIPIENTS_FILE", rf)
+    return rf
 
 
 # ── _chip ─────────────────────────────────────────────────────────────────────
@@ -110,20 +118,20 @@ def test_build_html_table_swing_levels():
 
 # ── send_scan_results_email ───────────────────────────────────────────────────
 
-def test_send_email_missing_config_returns_early():
+def test_send_email_missing_config_returns_early(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.notifications.RECIPIENTS_FILE", tmp_path / "missing.txt")
     with patch.dict("os.environ", {}, clear=True):
-        # Should log error and return without raising
-        send_scan_results_email([_STOCK])
+        send_scan_results_email([_STOCK])  # must not raise
 
 
-def test_send_email_no_stocks_not_test_skips():
+def test_send_email_no_stocks_not_test_skips(recipients_file):
     with patch.dict("os.environ", _SMTP_ENV):
         with patch("backend.notifications.smtplib.SMTP") as mock_smtp:
             send_scan_results_email([], is_test=False)
         mock_smtp.assert_not_called()
 
 
-def test_send_email_smtp_success_single_recipient():
+def test_send_email_smtp_success_single_recipient(recipients_file):
     with patch.dict("os.environ", _SMTP_ENV):
         with patch("backend.notifications.smtplib.SMTP") as mock_smtp_cls:
             mock_server = MagicMock()
@@ -133,9 +141,9 @@ def test_send_email_smtp_success_single_recipient():
         mock_server.send_message.assert_called_once()
 
 
-def test_send_email_smtp_success_multiple_recipients():
-    env = {**_SMTP_ENV, "EMAIL_TO": "a@ex.com,b@ex.com"}
-    with patch.dict("os.environ", env):
+def test_send_email_smtp_success_multiple_recipients(recipients_file):
+    recipients_file.write_text("a@ex.com\nb@ex.com\n")
+    with patch.dict("os.environ", _SMTP_ENV):
         with patch("backend.notifications.smtplib.SMTP") as mock_smtp_cls:
             mock_server = MagicMock()
             mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_server)
@@ -144,7 +152,7 @@ def test_send_email_smtp_success_multiple_recipients():
         assert mock_server.send_message.call_count == 2
 
 
-def test_send_email_is_test_sends_even_with_no_stocks():
+def test_send_email_is_test_sends_even_with_no_stocks(recipients_file):
     with patch.dict("os.environ", _SMTP_ENV):
         with patch("backend.notifications.smtplib.SMTP") as mock_smtp_cls:
             mock_server = MagicMock()
@@ -154,7 +162,7 @@ def test_send_email_is_test_sends_even_with_no_stocks():
         mock_server.send_message.assert_called_once()
 
 
-def test_send_email_retry_then_success():
+def test_send_email_retry_then_success(recipients_file):
     with patch.dict("os.environ", _SMTP_ENV):
         call_count = {"n": 0}
 
@@ -174,7 +182,7 @@ def test_send_email_retry_then_success():
         assert call_count["n"] == 2
 
 
-def test_send_email_all_attempts_fail():
+def test_send_email_all_attempts_fail(recipients_file):
     with patch.dict("os.environ", _SMTP_ENV):
         with patch("backend.notifications.smtplib.SMTP", side_effect=ConnectionRefusedError("refused")):
             with patch("backend.notifications.time.sleep"):

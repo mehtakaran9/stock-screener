@@ -12,10 +12,16 @@ Go to **Settings → Secrets and variables → Actions → Repository secrets** 
 | `EMAIL_SMTP_PORT` | `587` |
 | `EMAIL_USER` | `you@gmail.com` |
 | `EMAIL_PASSWORD` | 16-char Gmail App Password ¹ |
-| `EMAIL_TO` | `recipient@example.com` |
+| `EMAIL_TO` | one address per line ² |
 
 ¹ Gmail requires an **App Password** (not your account password) when 2-Step Verification is enabled.  
 Create one at **myaccount.google.com → Security → App Passwords**.
+
+² `EMAIL_TO` is a multi-line secret — each line is one recipient address. The workflow writes it to `backend/recipients.txt` before the scan runs. Example value:
+```
+alice@example.com
+bob@example.com
+```
 
 ### Manual workflow dispatch options
 

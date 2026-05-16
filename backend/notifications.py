@@ -1,5 +1,6 @@
 import smtplib
 import os
+import pathlib
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -13,6 +14,19 @@ from backend.utils import (
 )
 
 logger = logging.getLogger("notifications")
+
+RECIPIENTS_FILE = pathlib.Path(__file__).parent / "recipients.txt"
+
+
+def _load_recipients() -> list[str]:
+    try:
+        return [line.strip() for line in RECIPIENTS_FILE.read_text().splitlines() if line.strip()]
+    except FileNotFoundError:
+        logger.error(f"Recipients file not found: {RECIPIENTS_FILE}")
+        return []
+    except Exception as e:
+        logger.error(f"Failed to read recipients file: {e}")
+        return []
 
 
 def _chip(label: str, val: float) -> str:
@@ -263,15 +277,15 @@ _DUMMY_STOCKS = [
 def send_scan_results_email(stocks_data: list, is_test: bool = False):
     """
     Formats scan results into an HTML table and sends via SMTP.
-    Requires: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_TO
-    EMAIL_TO accepts a comma-separated list of addresses; each gets a separate email.
+    Requires: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_USER, EMAIL_PASSWORD env vars
+    and backend/recipients.txt (one address per line).
     Pass is_test=True to add a banner noting the data is for testing only.
     """
     smtp_host = os.getenv("EMAIL_SMTP_HOST")
     smtp_port = int(os.getenv("EMAIL_SMTP_PORT", 587))
     smtp_user = os.getenv("EMAIL_USER")
     smtp_pass = os.getenv("EMAIL_PASSWORD")
-    recipients = [e.strip() for e in os.getenv("EMAIL_TO", "").split(",") if e.strip()]
+    recipients = _load_recipients()
 
     if not all([smtp_host, smtp_user, smtp_pass, recipients]):
         logger.error("Email configuration missing. Cannot send notification.")
