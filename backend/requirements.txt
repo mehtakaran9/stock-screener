@@ -7,7 +7,7 @@ python-multipart==0.0.28
 httpx==0.28.1
 requests==2.34.2
 rich==15.0.0
-pandas-market-calendars==4.6.0
+pandas-market-calendars==5.3.2
 pytz==2026.2
 
 # dev/test only
