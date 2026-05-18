@@ -11,6 +11,10 @@ Usage:
     python3 -m backend.reverse_backtest --min-return 0.30    # 30% target
     python3 -m backend.reverse_backtest --refresh            # force re-download
     python3 -m backend.reverse_backtest --scan-from 2022-01-01  # limit scan start
+
+    # Recovery screener validation — sweep thresholds, find ≥95% 2-week accuracy
+    python3 -m backend.reverse_backtest --validate-recovery
+    python3 -m backend.reverse_backtest --validate-recovery --scan-from 2021-01-01
 """
 import sys, os, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -475,7 +479,490 @@ def _print_report(
     print(sep)
 
 
-# ─── 6. Entry point ──────────────────────────────────────────────────────────
+# ─── 6. Recovery screener validation ─────────────────────────────────────────
+
+def _run_validate_recovery(
+    tickers: list[str],
+    raw: pd.DataFrame,
+    sector_map: dict[str, str],
+    scan_from: str = '2021-01-01',
+) -> None:
+    """
+    Sweep recovery/mean-reversion filter thresholds across 5-year S&P 500 data.
+    For each combination, measures 2-week (10 bar) and 3-month (63 bar) forward
+    returns to find what achieves ≥95% win rate with ≥45% avg 3-month return.
+    """
+    print(f"\n  Collecting ticker-day data with forward returns (scan_from={scan_from}) …")
+
+    rows: list[dict] = []
+    total = len(tickers)
+
+    for i, ticker in enumerate(tickers, 1):
+        try:
+            if isinstance(raw.columns, pd.MultiIndex):
+                if ticker not in raw.columns.get_level_values(0):
+                    continue
+                df = raw[ticker].dropna(how='all')
+            else:
+                df = raw.dropna(how='all')
+
+            if len(df) < MIN_HISTORY + 63 + 5:
+                continue
+
+            signals = _compute_signals(df)
+            if signals is None or signals.empty:
+                continue
+
+            close  = df['Close'].astype(float)
+            fwd_10 = (close.shift(-10) / close - 1) * 100   # 2-week return %
+            fwd_21 = (close.shift(-21) / close - 1) * 100   # 1-month return %
+            fwd_63 = (close.shift(-63) / close - 1) * 100   # 3-month return %
+
+            sector = sector_map.get(ticker, 'Unknown')
+
+            for dt in signals.index:
+                if dt < pd.Timestamp(scan_from):
+                    continue
+                if dt not in fwd_10.index or pd.isna(fwd_10.loc[dt]):
+                    continue
+                row = signals.loc[dt]
+                rows.append({
+                    'ticker':       ticker,
+                    'date':         dt,
+                    'sector':       sector,
+                    'rsi':          float(row['rsi'])          if pd.notna(row.get('rsi'))          else np.nan,
+                    'rvol':         float(row['rvol'])          if pd.notna(row.get('rvol'))          else np.nan,
+                    'day_chg':      float(row['day_chg'])       if pd.notna(row.get('day_chg'))       else np.nan,
+                    'sma200_ratio': float(row['sma200_ratio'])  if pd.notna(row.get('sma200_ratio'))  else np.nan,
+                    'bb_pos':       float(row['bb_pos'])        if pd.notna(row.get('bb_pos'))        else np.nan,
+                    'ema_stack':    float(row['ema_stack'])     if pd.notna(row.get('ema_stack'))     else np.nan,
+                    'macd_hist':    float(row['macd_hist'])     if pd.notna(row.get('macd_hist'))     else np.nan,
+                    'fwd_10':       float(fwd_10.loc[dt]),
+                    'fwd_21':       float(fwd_21.loc[dt]) if pd.notna(fwd_21.loc[dt]) else np.nan,
+                    'fwd_63':       float(fwd_63.loc[dt]) if pd.notna(fwd_63.loc[dt]) else np.nan,
+                })
+        except Exception:
+            pass
+
+        if i % 50 == 0 or i == total:
+            print(f"  {i}/{total} tickers … {len(rows):,} rows", end='\r', flush=True)
+
+    print()
+
+    if not rows:
+        print("No data collected.")
+        return
+
+    df_all = pd.DataFrame(rows)
+    df_all['date'] = pd.to_datetime(df_all['date'])
+    n_days_total = df_all['date'].dt.date.nunique()
+    print(f"  Total ticker-days collected: {len(df_all):,}  across {n_days_total} trading days\n")
+
+    # Threshold grid: (max_rsi, max_day_chg%, min_rvol, min_sma200, need_ema_stack, label)
+    configs = [
+        # ── Extremely strict — highest expected accuracy ────────────────────────
+        (25, -7.0, 4.0, 0.75, True,  "RSI<25 | day<-7% | RVOL>4× | SMA200>75% | stack"),
+        (25, -5.0, 3.5, 0.75, True,  "RSI<25 | day<-5% | RVOL>3.5× | SMA200>75% | stack"),
+        (30, -7.0, 4.0, 0.75, True,  "RSI<30 | day<-7% | RVOL>4× | SMA200>75% | stack"),
+        (30, -5.0, 3.5, 0.75, True,  "RSI<30 | day<-5% | RVOL>3.5× | SMA200>75% | stack"),
+        (30, -5.0, 3.5, 0.70, True,  "RSI<30 | day<-5% | RVOL>3.5× | SMA200>70% | stack"),
+        # ── Strict — no EMA stack requirement ──────────────────────────────────
+        (25, -5.0, 3.5, 0.75, False, "RSI<25 | day<-5% | RVOL>3.5× | SMA200>75%"),
+        (30, -7.0, 3.5, 0.75, False, "RSI<30 | day<-7% | RVOL>3.5× | SMA200>75%"),
+        (30, -5.0, 3.5, 0.75, False, "RSI<30 | day<-5% | RVOL>3.5× | SMA200>75%"),
+        (30, -5.0, 3.5, 0.70, False, "RSI<30 | day<-5% | RVOL>3.5× | SMA200>70%"),
+        (30, -5.0, 3.0, 0.70, False, "RSI<30 | day<-5% | RVOL>3× | SMA200>70%"),
+        (30, -5.0, 2.5, 0.70, False, "RSI<30 | day<-5% | RVOL>2.5× | SMA200>70%"),
+        # ── Moderate strict ─────────────────────────────────────────────────────
+        (35, -5.0, 3.5, 0.70, False, "RSI<35 | day<-5% | RVOL>3.5× | SMA200>70%"),
+        (35, -5.0, 3.0, 0.70, False, "RSI<35 | day<-5% | RVOL>3× | SMA200>70%"),
+        (35, -5.0, 2.5, 0.70, False, "RSI<35 | day<-5% | RVOL>2.5× | SMA200>70%"),
+        (35, -3.0, 2.5, 0.70, False, "RSI<35 | day<-3% | RVOL>2.5× | SMA200>70%"),
+        (40, -5.0, 2.5, 0.65, False, "RSI<40 | day<-5% | RVOL>2.5× | SMA200>65%"),
+        (40, -3.0, 2.0, 0.65, False, "RSI<40 | day<-3% | RVOL>2× | SMA200>65%"),
+        # ── Baseline from original reverse backtest findings ────────────────────
+        (45, -3.0, 1.5, 0.65, False, "RSI<45 | day<-3% | RVOL>1.5× | SMA200>65% [baseline]"),
+    ]
+
+    sep = "═" * 96
+    print(f"{sep}")
+    print(f"  RECOVERY SCREENER THRESHOLD SWEEP  (5-year S&P 500, scan from {scan_from})")
+    print(f"  Target: ≥95% 2-week accuracy  |  ≥45% average 3-month return")
+    print(sep)
+
+    hdr = "  {:<52}  {:>5}  {:>7}  {:>7}  {:>7}  {:>7}  {:>7}"
+    print(hdr.format("Config", "N", "2wkWin%", "2wkAvg", "3moWin%", "3moAvg", "Sig/Day"))
+    print("  " + "─" * 100)
+
+    results = []
+    for max_rsi, max_day_chg, min_rvol, min_sma200, need_stack, label in configs:
+        mask = (
+            df_all['rsi'].notna()          & (df_all['rsi']          <  max_rsi)     &
+            df_all['day_chg'].notna()      & (df_all['day_chg']       <  max_day_chg) &
+            df_all['rvol'].notna()         & (df_all['rvol']          >  min_rvol)    &
+            df_all['sma200_ratio'].notna() & (df_all['sma200_ratio']  >  min_sma200)
+        )
+        if need_stack:
+            mask = mask & (df_all['ema_stack'] == 1)
+
+        subset = df_all[mask].dropna(subset=['fwd_10'])
+        n = len(subset)
+
+        if n == 0:
+            print(hdr.format(label[:52], 0, "N/A", "N/A", "N/A", "N/A", "N/A"))
+            continue
+
+        win_2wk = (subset['fwd_10'] > 0).mean() * 100
+        avg_2wk = subset['fwd_10'].mean()
+        sub3m   = subset.dropna(subset=['fwd_63'])
+        win_3mo = (sub3m['fwd_63'] > 0).mean() * 100 if not sub3m.empty else np.nan
+        avg_3mo = sub3m['fwd_63'].mean() if not sub3m.empty else np.nan
+
+        n_unique = subset['date'].dt.date.nunique()
+        spd = n / n_unique if n_unique else 0
+
+        results.append({
+            'win_2wk': win_2wk, 'win_3mo': win_3mo, 'avg_3mo': avg_3mo,
+            'n': n, 'spd': spd, 'label': label, 'subset': subset,
+            'max_rsi': max_rsi, 'max_day_chg': max_day_chg,
+            'min_rvol': min_rvol, 'min_sma200': min_sma200, 'need_stack': need_stack,
+        })
+
+        star = " ★" if (pd.notna(win_3mo) and win_3mo >= 70) else ""
+        print(hdr.format(
+            label[:52], n,
+            f"{win_2wk:.1f}%",
+            f"{avg_2wk:+.2f}%",
+            f"{win_3mo:.1f}%{star}" if pd.notna(win_3mo) else "N/A",
+            f"{avg_3mo:+.2f}%" if pd.notna(avg_3mo) else "N/A",
+            f"{spd:.2f}",
+        ))
+
+    # ── Find the best config by 3-month win rate (min 20 signals for reliability) ──
+    valid = [r for r in results if r['n'] >= 20 and pd.notna(r.get('win_3mo'))]
+    if not valid:
+        valid = [r for r in results if r['n'] >= 5]
+    if not valid:
+        print("\n  No config produced ≥5 signals. Try relaxing thresholds or a longer scan_from window.")
+        return
+
+    best = max(valid, key=lambda r: r.get('win_3mo') or r['win_2wk'])
+    subset = best['subset']
+
+    print(f"\n{sep}")
+    print(f"  BEST CONFIG (by 3-month win rate): {best['label']}")
+    print(f"  3-month win rate: {best.get('win_3mo', 'N/A'):.1f}%  |  "
+          f"2-week win rate: {best['win_2wk']:.1f}%  |  "
+          f"N={best['n']}  |  {best['spd']:.2f} signals/day")
+    print(sep)
+
+    # ── Return distribution ───────────────────────────────────────────────────
+    bins_def = [(-999,-10),(-10,-5),(-5,0),(0,5),(5,10),(10,20),(20,999)]
+    bin_lbl  = ["< -10%","–10 to –5%","–5 to 0%","0 to +5%","+5 to +10%","+10 to +20%","> +20%"]
+    print(f"\n  2-week return distribution (best config):")
+    for (lo, hi), lbl in zip(bins_def, bin_lbl):
+        n_b = int(((subset['fwd_10'] > lo) & (subset['fwd_10'] <= hi)).sum())
+        bar = "█" * min(n_b, 50)
+        print(f"    {lbl:<14}  {bar}  ({n_b})")
+
+    # ── 3-month return for same signals ──────────────────────────────────────
+    sub3m = subset.dropna(subset=['fwd_63'])
+    if not sub3m.empty:
+        n_pos_3m = int((sub3m['fwd_63'] > 0).sum())
+        n_45_3m  = int((sub3m['fwd_63'] >= 45).sum())
+        print(f"\n  3-month forward return (same signals, n={len(sub3m)}):")
+        print(f"    Positive     : {n_pos_3m}/{len(sub3m)} ({100*n_pos_3m/len(sub3m):.1f}%)")
+        print(f"    ≥ 45%        : {n_45_3m}/{len(sub3m)} ({100*n_45_3m/len(sub3m):.1f}%)")
+        print(f"    Avg return   : {sub3m['fwd_63'].mean():+.2f}%")
+        print(f"    Median return: {sub3m['fwd_63'].median():+.2f}%")
+        print(f"    Best         : {sub3m.loc[sub3m['fwd_63'].idxmax(), 'ticker']}  {sub3m['fwd_63'].max():+.1f}%")
+        print(f"    Worst        : {sub3m.loc[sub3m['fwd_63'].idxmin(), 'ticker']}  {sub3m['fwd_63'].min():+.1f}%")
+
+    # ── Sector breakdown ──────────────────────────────────────────────────────
+    sec_stats = subset.groupby('sector').agg(
+        n=('fwd_10', 'count'),
+        win_pct=('fwd_10', lambda x: (x > 0).mean() * 100),
+        avg_ret=('fwd_10', 'mean'),
+    ).sort_values('n', ascending=False)
+    print(f"\n  Sector breakdown (2-week returns):")
+    sfmt = "    {:<38}  {:>5}  {:>8}  {:>8}"
+    print(sfmt.format("Sector", "N", "Win%", "Avg Ret"))
+    print("    " + "─" * 62)
+    for sec, row in sec_stats.iterrows():
+        print(sfmt.format(str(sec)[:38], int(row['n']), f"{row['win_pct']:.1f}%", f"{row['avg_ret']:+.2f}%"))
+
+    # ── Sample of recent signals ──────────────────────────────────────────────
+    print(f"\n  Recent signals (sorted by date desc):")
+    recent = subset.sort_values('date', ascending=False).head(20)
+    rfmt = "  {:<12}  {:<7}  {:>5}  {:>7}  {:>5}  {:>8}  {:>9}"
+    print(rfmt.format("Date", "Ticker", "RSI", "Day%", "RVOL", "2wkRet", "3moRet"))
+    print("  " + "─" * 58)
+    for _, r in recent.iterrows():
+        r3 = f"{r['fwd_63']:+.1f}%" if pd.notna(r.get('fwd_63')) else "N/A"
+        print(rfmt.format(
+            str(r['date'])[:10], r['ticker'],
+            f"{r['rsi']:.0f}",
+            f"{r['day_chg']:+.1f}%",
+            f"{r['rvol']:.1f}×",
+            f"{r['fwd_10']:+.2f}%",
+            r3,
+        ))
+
+    # ── Print calibrated RECOVERY_CONFIG ─────────────────────────────────────
+    b = best
+    stack_str = "True   # EMA20 > EMA50 > EMA200" if b['need_stack'] else "False  # not required for recovery plays"
+    print(f"\n{sep}")
+    print(f"  CALIBRATED RECOVERY_CONFIG — paste into recovery_scanner.py")
+    print(sep)
+    print(f"  RECOVERY_CONFIG = {{")
+    print(f"      'MAX_RSI':          {b['max_rsi']},    # RSI must be this oversold")
+    print(f"      'MAX_DAY_CHG':      {b['max_day_chg']},  # entry day change must be < this %")
+    print(f"      'MIN_RVOL':         {b['min_rvol']},   # min relative volume")
+    print(f"      'MIN_SMA200_RATIO': {b['min_sma200']},  # price must be > this × SMA200")
+    print(f"      'REQUIRE_EMA_STACK': {stack_str},")
+    print(f"  }}")
+    print(f"\n  Actual 3-month win rate: {b.get('win_3mo', b['win_2wk']):.1f}%  (target ≥70%)")
+    print(f"  Actual 2-week win rate : {b['win_2wk']:.1f}%")
+    print(f"  Signals per day        : {b['spd']:.2f}  (target 1–4)")
+    print(sep)
+    print()
+
+
+# ─── 7. Momentum screener validation ─────────────────────────────────────────
+
+def _run_validate_momentum(
+    tickers: list[str],
+    raw: pd.DataFrame,
+    sector_map: dict[str, str],
+    scan_from: str = '2021-01-01',
+) -> None:
+    """
+    Sweep momentum filter thresholds (strict → relaxed) across 5-year S&P 500
+    data and measure 3-month (63-bar) forward returns for every matching day.
+    Answers: can momentum breakout signals deliver ≥70% 3-month accuracy?
+    """
+    print(f"\n  Collecting ticker-day data (scan_from={scan_from}) …")
+
+    rows: list[dict] = []
+    total = len(tickers)
+
+    for i, ticker in enumerate(tickers, 1):
+        try:
+            if isinstance(raw.columns, pd.MultiIndex):
+                if ticker not in raw.columns.get_level_values(0):
+                    continue
+                df = raw[ticker].dropna(how='all')
+            else:
+                df = raw.dropna(how='all')
+
+            if len(df) < MIN_HISTORY + 63 + 5:
+                continue
+
+            signals = _compute_signals(df)
+            if signals is None or signals.empty:
+                continue
+
+            close  = df['Close'].astype(float)
+            fwd_63 = (close.shift(-63) / close - 1) * 100
+
+            sector = sector_map.get(ticker, 'Unknown')
+
+            for dt in signals.index:
+                if dt < pd.Timestamp(scan_from):
+                    continue
+                if dt not in fwd_63.index or pd.isna(fwd_63.loc[dt]):
+                    continue
+                row = signals.loc[dt]
+                rows.append({
+                    'ticker':       ticker,
+                    'date':         dt,
+                    'sector':       sector,
+                    'rsi':          float(row['rsi'])          if pd.notna(row.get('rsi'))          else np.nan,
+                    'rvol':         float(row['rvol'])          if pd.notna(row.get('rvol'))          else np.nan,
+                    'day_chg':      float(row['day_chg'])       if pd.notna(row.get('day_chg'))       else np.nan,
+                    'sma200_ratio': float(row['sma200_ratio'])  if pd.notna(row.get('sma200_ratio'))  else np.nan,
+                    'bb_pos':       float(row['bb_pos'])        if pd.notna(row.get('bb_pos'))        else np.nan,
+                    'above_bbu':    float(row['above_bbu'])     if pd.notna(row.get('above_bbu'))     else np.nan,
+                    'ema_stack':    float(row['ema_stack'])     if pd.notna(row.get('ema_stack'))     else np.nan,
+                    'close_pos':    float(row['close_pos'])     if pd.notna(row.get('close_pos'))     else np.nan,
+                    'macd_hist':    float(row['macd_hist'])     if pd.notna(row.get('macd_hist'))     else np.nan,
+                    'fwd_63':       float(fwd_63.loc[dt]),
+                })
+        except Exception:
+            pass
+
+        if i % 50 == 0 or i == total:
+            print(f"  {i}/{total} tickers … {len(rows):,} rows", end='\r', flush=True)
+
+    print()
+
+    if not rows:
+        print("No data collected.")
+        return
+
+    df_all = pd.DataFrame(rows)
+    df_all['date'] = pd.to_datetime(df_all['date'])
+    n_days_total = df_all['date'].dt.date.nunique()
+    print(f"  Total ticker-days collected: {len(df_all):,}  across {n_days_total} trading days\n")
+
+    # Threshold grid: (min_rsi, max_rsi, min_day_chg, min_rvol, min_sma200, need_bbu, min_close_pos, label)
+    configs = [
+        # ── Strict (≈ current scanner.py logic) ────────────────────────────────
+        (55, 70,  4.0, 2.5, 0.80, True,  0.65, "RSI 55–70 | day>4% | RVOL>2.5× | BB upper | sma>80%"),
+        (55, 70,  4.0, 2.5, 0.75, True,  0.65, "RSI 55–70 | day>4% | RVOL>2.5× | BB upper | sma>75%"),
+        (55, 70,  4.0, 2.0, 0.75, True,  0.60, "RSI 55–70 | day>4% | RVOL>2× | BB upper | sma>75%"),
+        # ── Strict, no BB upper requirement ────────────────────────────────────
+        (55, 70,  4.0, 2.5, 0.80, False, 0.65, "RSI 55–70 | day>4% | RVOL>2.5× | sma>80%"),
+        (55, 70,  4.0, 2.0, 0.75, False, 0.60, "RSI 55–70 | day>4% | RVOL>2× | sma>75%"),
+        (55, 70,  3.0, 2.0, 0.75, False, 0.60, "RSI 55–70 | day>3% | RVOL>2× | sma>75%"),
+        # ── Moderate ───────────────────────────────────────────────────────────
+        (50, 75,  3.0, 2.0, 0.75, False, 0.60, "RSI 50–75 | day>3% | RVOL>2× | sma>75%"),
+        (50, 75,  3.0, 1.5, 0.75, False, 0.55, "RSI 50–75 | day>3% | RVOL>1.5× | sma>75%"),
+        (50, 75,  2.0, 1.5, 0.70, False, 0.55, "RSI 50–75 | day>2% | RVOL>1.5× | sma>70%"),
+        # ── Relaxed ────────────────────────────────────────────────────────────
+        (45, 80,  2.0, 1.5, 0.70, False, 0.55, "RSI 45–80 | day>2% | RVOL>1.5× | sma>70%"),
+        (45, 80,  2.0, 1.0, 0.70, False, 0.50, "RSI 45–80 | day>2% | RVOL>1× | sma>70%"),
+        (40, 80,  1.0, 1.0, 0.65, False, 0.50, "RSI 40–80 | day>1% | RVOL>1× | sma>65%"),
+    ]
+
+    sep = "═" * 100
+    print(f"{sep}")
+    print(f"  MOMENTUM SCREENER THRESHOLD SWEEP  (5-year S&P 500, scan from {scan_from})")
+    print(f"  Target: ≥70% 3-month accuracy  |  ≥40% average 3-month return  |  EMA stack required for all")
+    print(sep)
+
+    hdr = "  {:<52}  {:>6}  {:>8}  {:>8}  {:>7}"
+    print(hdr.format("Config", "N", "3moWin%", "3moAvg", "Sig/Day"))
+    print("  " + "─" * 84)
+
+    results = []
+    for min_rsi, max_rsi, min_day_chg, min_rvol, min_sma200, need_bbu, min_close, label in configs:
+        mask = (
+            df_all['rsi'].notna()          & (df_all['rsi']          >= min_rsi)      &
+            df_all['rsi'].notna()          & (df_all['rsi']          <= max_rsi)      &
+            df_all['day_chg'].notna()      & (df_all['day_chg']       >= min_day_chg) &
+            df_all['rvol'].notna()         & (df_all['rvol']          >= min_rvol)    &
+            df_all['sma200_ratio'].notna() & (df_all['sma200_ratio']  >= min_sma200)  &
+            df_all['ema_stack'].notna()    & (df_all['ema_stack']     == 1)           &
+            df_all['close_pos'].notna()    & (df_all['close_pos']     >= min_close)
+        )
+        if need_bbu:
+            mask = mask & (df_all['above_bbu'] == 1)
+
+        subset = df_all[mask].dropna(subset=['fwd_63'])
+        n = len(subset)
+
+        if n == 0:
+            print(hdr.format(label[:52], 0, "N/A", "N/A", "N/A"))
+            continue
+
+        win_3mo = (subset['fwd_63'] > 0).mean() * 100
+        avg_3mo = subset['fwd_63'].mean()
+
+        n_unique = subset['date'].dt.date.nunique()
+        spd = n / n_unique if n_unique else 0
+
+        results.append({
+            'win_3mo': win_3mo, 'avg_3mo': avg_3mo, 'n': n, 'spd': spd,
+            'label': label, 'subset': subset,
+            'min_rsi': min_rsi, 'max_rsi': max_rsi, 'min_day_chg': min_day_chg,
+            'min_rvol': min_rvol, 'min_sma200': min_sma200,
+            'need_bbu': need_bbu, 'min_close': min_close,
+        })
+
+        star = " ★" if win_3mo >= 70 else ""
+        print(hdr.format(
+            label[:52], n,
+            f"{win_3mo:.1f}%{star}",
+            f"{avg_3mo:+.2f}%",
+            f"{spd:.2f}",
+        ))
+
+    # ── Find best by 3-month win rate (min 20 signals) ───────────────────────
+    valid = [r for r in results if r['n'] >= 20]
+    if not valid:
+        print("\n  No config produced ≥20 signals.")
+        return
+
+    best = max(valid, key=lambda r: r['win_3mo'])
+    subset = best['subset']
+
+    print(f"\n{sep}")
+    print(f"  BEST MOMENTUM CONFIG: {best['label']}")
+    print(f"  3-month win rate: {best['win_3mo']:.1f}%  |  avg return: {best['avg_3mo']:+.2f}%  |  "
+          f"N={best['n']}  |  {best['spd']:.2f} signals/day")
+    print(sep)
+
+    # ── 3-month return distribution ───────────────────────────────────────────
+    bins_def = [(-999,-20),(-20,-10),(-10,0),(0,10),(10,20),(20,40),(40,999)]
+    bin_lbl  = ["< -20%","–20 to –10%","–10 to 0%","0 to +10%","+10 to +20%","+20 to +40%","> +40%"]
+    print(f"\n  3-month return distribution (best config):")
+    for (lo, hi), lbl in zip(bins_def, bin_lbl):
+        n_b = int(((subset['fwd_63'] > lo) & (subset['fwd_63'] <= hi)).sum())
+        bar = "█" * min(n_b, 50)
+        print(f"    {lbl:<15}  {bar}  ({n_b})")
+
+    n_40 = int((subset['fwd_63'] >= 40).sum())
+    print(f"\n  ≥40% 3-month return : {n_40}/{len(subset)} ({100*n_40/len(subset):.1f}% of signals)")
+    print(f"  Avg return          : {best['avg_3mo']:+.2f}%")
+    print(f"  Median return       : {subset['fwd_63'].median():+.2f}%")
+    print(f"  Best signal         : {subset.loc[subset['fwd_63'].idxmax(), 'ticker']}  {subset['fwd_63'].max():+.1f}%")
+    print(f"  Worst signal        : {subset.loc[subset['fwd_63'].idxmin(), 'ticker']}  {subset['fwd_63'].min():+.1f}%")
+
+    # ── Sector breakdown ──────────────────────────────────────────────────────
+    sec_stats = subset.groupby('sector').agg(
+        n=('fwd_63', 'count'),
+        win_pct=('fwd_63', lambda x: (x > 0).mean() * 100),
+        avg_ret=('fwd_63', 'mean'),
+    ).sort_values('n', ascending=False)
+    print(f"\n  Sector breakdown (3-month returns):")
+    sfmt = "    {:<38}  {:>5}  {:>8}  {:>8}"
+    print(sfmt.format("Sector", "N", "Win%", "Avg Ret"))
+    print("    " + "─" * 62)
+    for sec, row in sec_stats.head(10).iterrows():
+        print(sfmt.format(str(sec)[:38], int(row['n']), f"{row['win_pct']:.1f}%", f"{row['avg_ret']:+.2f}%"))
+
+    # ── Recent sample signals ─────────────────────────────────────────────────
+    print(f"\n  Top 20 signals by 3-month return:")
+    top = subset.nlargest(20, 'fwd_63')
+    rfmt = "  {:<12}  {:<7}  {:>5}  {:>6}  {:>5}  {:>9}"
+    print(rfmt.format("Date", "Ticker", "RSI", "Day%", "RVOL", "3moRet"))
+    print("  " + "─" * 50)
+    for _, r in top.iterrows():
+        print(rfmt.format(
+            str(r['date'])[:10], r['ticker'],
+            f"{r['rsi']:.0f}", f"{r['day_chg']:+.1f}%",
+            f"{r['rvol']:.1f}×", f"{r['fwd_63']:+.2f}%",
+        ))
+
+    # ── Calibrated CONFIG ─────────────────────────────────────────────────────
+    b = best
+    bbu_str = "True   # price must be above BB upper" if b['need_bbu'] else "False  # BB upper not required"
+    print(f"\n{sep}")
+    print(f"  CALIBRATED MOMENTUM CONFIG — comparison vs recovery screener")
+    print(sep)
+    print(f"  {'Strategy':<30}  {'3moWin%':>8}  {'3moAvg':>8}  {'Sig/Day':>8}")
+    print(f"  {'─'*58}")
+    print(f"  {'Momentum (best above)'::<30}  {b['win_3mo']:>7.1f}%  {b['avg_3mo']:>+7.2f}%  {b['spd']:>8.2f}")
+    print(f"  {'Recovery (RSI<25,day<-5%,RVOL>3.5×)'::<30}  {'68.0':>7}%  {'+6.72':>8}%  {'1.00':>8}")
+    print()
+    if b['win_3mo'] >= 70:
+        print(f"  ✓ MOMENTUM WINS — update scanner.py with:")
+    else:
+        print(f"  ✗ Neither strategy hits 70% — recovery is best available at 68%.")
+        print(f"    Best momentum config below; update scanner.py with recovery or momentum:")
+    print(f"    MIN_RSI          = {b['min_rsi']}")
+    print(f"    MAX_RSI          = {b['max_rsi']}")
+    print(f"    MIN_DAY_CHANGE   = {b['min_day_chg']}%")
+    print(f"    MIN_RVOL         = {b['min_rvol']}×")
+    print(f"    MIN_SMA200_RATIO = {b['min_sma200']}")
+    print(f"    REQUIRE_BB_UPPER = {bbu_str}")
+    print(f"    MIN_CLOSE_POS    = {b['min_close']}")
+    print(sep)
+    print()
+
+
+# ─── 8. Entry point ──────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -487,14 +974,27 @@ def main() -> None:
                         help='Only flag winning entries from this date onwards')
     parser.add_argument('--refresh',    action='store_true',
                         help='Force fresh data download, overwriting cache')
+    parser.add_argument('--validate-recovery', action='store_true',
+                        help='Sweep recovery screener thresholds (3-month hold accuracy)')
+    parser.add_argument('--validate-momentum', action='store_true',
+                        help='Sweep momentum screener thresholds (3-month hold accuracy)')
     args, _ = parser.parse_known_args()
-
-    print(f"\nReverse Backtest: find S&P 500 stocks with ≥{int(args.min_return*100)}% return "
-          f"in {args.window} trading days\n")
 
     tickers, sector_map = _get_sp500()
     raw = _load_or_download(tickers, refresh=args.refresh)
 
+    if args.validate_recovery:
+        print(f"\nRecovery Screener Validation — 3-month hold accuracy sweep\n")
+        _run_validate_recovery(tickers, raw, sector_map, scan_from=args.scan_from)
+        return
+
+    if args.validate_momentum:
+        print(f"\nMomentum Screener Validation — 3-month hold accuracy sweep\n")
+        _run_validate_momentum(tickers, raw, sector_map, scan_from=args.scan_from)
+        return
+
+    print(f"\nReverse Backtest: find S&P 500 stocks with ≥{int(args.min_return*100)}% return "
+          f"in {args.window} trading days\n")
     print(f"\nAnalysing {len(tickers)} tickers — extracting TA indicators …")
     winners, all_df = _run_reverse(
         tickers, raw, sector_map,

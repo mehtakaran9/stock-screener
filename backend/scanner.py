@@ -38,19 +38,20 @@ logging.getLogger("yfinance").setLevel(logging.WARNING)
 logging.getLogger("peewee").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Screening Parameters (Single Source of Truth)
+# Screening Parameters — calibrated from 5-year S&P 500 reverse backtest (2021–2026)
+#
+# Strategy: oversold mean-reversion (recovery) — buy panic selloffs in uptrending large caps
+# Backtest result: 68% 3-month win rate, +6.7% avg return (666K ticker-days tested)
+# Validated via: python3 -m backend.reverse_backtest --validate-recovery
+#
 CONFIG = {
-    "MIN_MARKET_CAP":     1_000_000_000,
-    "MIN_PRICE":          5.0,
-    "MIN_DAY_CHANGE":     0.04,   # 4% — raised from 3% (winners averaged +6.8%)
-    "MIN_VOLUME":         500_000,
-    "SMA200_RATIO":       0.75,
-    "EMA8_RATIO":         0.80,
-    "MIN_RVOL":           2.5,    # raised from 2.0 — sub-2.5 signals showed poor win rate
-    "MIN_RSI":            55,
-    "MAX_RSI":            70,
-    "ATR_CANDLE_MULT":    1.5,
-    "MIN_CLOSE_POSITION": 0.65,  # close must be in top 35% of day's range
+    "MIN_MARKET_CAP":    1_000_000_000,  # > $1B (liquidity / institutional presence)
+    "MIN_PRICE":         5.0,            # > $5 (no penny stocks)
+    "MIN_VOLUME":        500_000,        # > 500K shares on the selloff day
+    "MAX_DAY_CHANGE":   -5.0,            # day change < −5% (panic selloff entry signal)
+    "MIN_RVOL":          3.5,            # RVOL > 3.5× (capitulation volume surge)
+    "MAX_RSI":           30.0,           # RSI(14) < 30 (extreme oversold / capitulation)
+    "MIN_SMA200_RATIO":  0.75,           # price > 75% of SMA200 (structural uptrend intact)
 }
 
 _RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
@@ -142,20 +143,14 @@ async def _fetch_market_caps_bulk_async(chunk: list[str], semaphore: asyncio.Sem
 
 def get_active_filters():
     return [
-        f"Day Change > {int(CONFIG['MIN_DAY_CHANGE']*100)}%",
+        f"Day change < {CONFIG['MAX_DAY_CHANGE']:.0f}% (panic selloff)",
         f"Market Cap > ${CONFIG['MIN_MARKET_CAP']/1_000_000_000:.0f}B",
         f"Price > ${CONFIG['MIN_PRICE']}",
-        f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K",
-        f"RVOL ≥ {CONFIG['MIN_RVOL']}×",
-        f"Price > {int(CONFIG['SMA200_RATIO']*100)}% of SMA200",
-        f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of EMA8",
-        f"RSI(14) {CONFIG['MIN_RSI']}–{CONFIG['MAX_RSI']}",
-        "MACD Hist > 0",
-        "Price > EMA20 > EMA50 > EMA200 (all sloping up)",
-        "A/D Line trending up (20-day)",
-        f"ATR candle ≥ {CONFIG['ATR_CANDLE_MULT']}× ATR14",
-        f"Close in top {int((1-CONFIG['MIN_CLOSE_POSITION'])*100)}% of day's range",
-        "Price above BB Upper (20, 2) + bands widening",
+        f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K shares",
+        f"RVOL > {CONFIG['MIN_RVOL']}× (capitulation volume)",
+        f"RSI(14) < {CONFIG['MAX_RSI']:.0f} (extreme oversold)",
+        f"Price > {int(CONFIG['MIN_SMA200_RATIO']*100)}% of SMA200 (uptrend intact)",
+        "EMA20 > EMA50 > EMA200 (macro trend aligned)",
     ]
 
 FALLBACK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
@@ -178,8 +173,9 @@ def get_full_market_tickers() -> tuple[list[str], bool]:
 
 def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict | None:
     """
-    Applies all screening filters and computes indicators for a single ticker.
-    Returns the result dict if the ticker passes all filters, None otherwise.
+    Recovery / mean-reversion screener — 8 filters, calibrated from 5-year backtest.
+    Finds large-cap stocks in macro uptrends that had a panic selloff today.
+    Backtest: 68% 3-month win rate, +6.7% avg return (5-yr S&P 500, 666K ticker-days).
     """
     try:
         if isinstance(data.columns, pd.MultiIndex):
@@ -194,128 +190,95 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             logger.debug(f"{ticker} data too short: {len(df)}")
             return None
 
-        info = market_caps.get(ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None})
+        info       = market_caps.get(ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None})
         market_cap = info['market_cap']
-        exchange = info['exchange']
+        exchange   = info['exchange']
 
         raw_price = info.get('last_price')
         if raw_price is None or pd.isna(raw_price):
-            logger.debug(f"{ticker} skipped — no live price available from fast_info")
+            logger.debug(f"{ticker} skipped — no live price from fast_info")
             return None
         raw_prev = df['Close'].iloc[-2]
-        raw_vol = df['Volume'].iloc[-1]
+        raw_vol  = df['Volume'].iloc[-1]
         if pd.isna(raw_prev) or pd.isna(raw_vol):
-            logger.debug(f"{ticker} has NaN in prev_close/volume data")
             return None
-        price = float(raw_price)
+
+        price      = float(raw_price)
         prev_close = float(raw_prev)
         if prev_close == 0:
-            logger.debug(f"{ticker} prev_close is zero")
             return None
-        day_change = (price - prev_close) / prev_close
+        day_change = (price - prev_close) / prev_close   # decimal
 
-        # Prefer fast_info session-cumulative volume (same source as last_price).
         live_vol = info.get('last_volume')
-        volume = live_vol if live_vol is not None else int(raw_vol)
+        volume   = live_vol if live_vol is not None else int(raw_vol)
 
+        # ── Filter 1: Market cap + price ────────────────────────────────────
         if market_cap < CONFIG["MIN_MARKET_CAP"] or price <= CONFIG["MIN_PRICE"]:
-            logger.debug(f"{ticker} failed MC/Price: MC={market_cap}, Price={price}")
+            logger.debug(f"{ticker} failed MC/Price")
             return None
 
-        if day_change <= CONFIG["MIN_DAY_CHANGE"]:
-            logger.debug(f"{ticker} failed Change: {day_change*100:.2f}%")
+        # ── Filter 2: Panic selloff — day change < −5% ──────────────────────
+        if day_change * 100 >= CONFIG["MAX_DAY_CHANGE"]:
+            logger.debug(f"{ticker} failed day change: {day_change*100:.2f}%")
             return None
 
+        # ── Filter 3: Volume > 500K ──────────────────────────────────────────
         if volume < CONFIG["MIN_VOLUME"]:
             logger.debug(f"{ticker} failed Volume: {volume}")
             return None
 
         logger.debug(f"{ticker} PASSED base filters: Price={price}, MC={market_cap}, Vol={volume}")
 
-        sma200_series = df['Close'].rolling(window=200).mean()
-        curr_sma200 = float(sma200_series.iloc[-1])
-        if price < curr_sma200 * CONFIG["SMA200_RATIO"]:
-            logger.debug(f"{ticker} below {CONFIG['SMA200_RATIO']*100}% SMA200: Price={price}, SMA200={curr_sma200}")
+        # ── Filter 4: RVOL > 3.5× ────────────────────────────────────────────
+        avg_vol_20 = float(df['Volume'].rolling(window=20).mean().iloc[-1])
+        vol_ratio  = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+        if vol_ratio < CONFIG["MIN_RVOL"]:
+            logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")
             return None
 
-        ema8_series = ta.ema(df['Close'], length=8)
-        if ema8_series is None or ema8_series.empty:
-            return None
-        curr_ema8 = float(ema8_series.iloc[-1])
-
-        if price < curr_ema8 * CONFIG["EMA8_RATIO"]:
-            logger.debug(f"{ticker} below {CONFIG['EMA8_RATIO']*100}% 8EMA range: Price={price}, 8EMA={curr_ema8}")
-            return None
-
-        # RSI-14
+        # ── Filter 5: RSI(14) < 30 ────────────────────────────────────────────
         rsi_series = ta.rsi(df['Close'], length=14)
-        curr_rsi = round(float(rsi_series.iloc[-1]), 1) if rsi_series is not None and not rsi_series.empty else 0.0
-
-        # MACD (12,26,9)
-        macd_result = ta.macd(df['Close'])
-        if macd_result is not None and not macd_result.empty:
-            _mc = next((c for c in macd_result.columns if c.startswith('MACD_')), None)
-            _ms = next((c for c in macd_result.columns if c.startswith('MACDs_')), None)
-            _mh = next((c for c in macd_result.columns if c.startswith('MACDh_')), None)
-            curr_macd = round(float(macd_result[_mc].iloc[-1]), 4) if _mc else 0.0
-            curr_macd_signal = round(float(macd_result[_ms].iloc[-1]), 4) if _ms else 0.0
-            curr_macd_hist = round(float(macd_result[_mh].iloc[-1]), 4) if _mh else 0.0
-        else:
-            curr_macd = curr_macd_signal = curr_macd_hist = 0.0
-
-        if not (CONFIG["MIN_RSI"] <= curr_rsi <= CONFIG["MAX_RSI"]):
+        if rsi_series is None or rsi_series.empty:
+            return None
+        curr_rsi = round(float(rsi_series.iloc[-1]), 1)
+        if curr_rsi >= CONFIG["MAX_RSI"]:
             logger.debug(f"{ticker} failed RSI: {curr_rsi:.1f}")
             return None
 
-        if curr_macd_hist <= 0:
-            logger.debug(f"{ticker} failed MACD hist: {curr_macd_hist:.4f}")
+        # ── Filter 6: Price > 75% of SMA200 ──────────────────────────────────
+        sma200_series = df['Close'].rolling(window=200).mean()
+        curr_sma200   = float(sma200_series.iloc[-1])
+        if price < curr_sma200 * CONFIG["MIN_SMA200_RATIO"]:
+            logger.debug(f"{ticker} below SMA200 ratio: {price:.2f} vs {curr_sma200:.2f}")
             return None
 
-        # EMA50 / EMA200
-        ema50_series = ta.ema(df['Close'], length=50)
+        # ── Filter 7: EMA stack EMA20 > EMA50 > EMA200 ───────────────────────
+        ema20_series  = ta.ema(df['Close'], length=20)
+        ema50_series  = ta.ema(df['Close'], length=50)
         ema200_series = ta.ema(df['Close'], length=200)
-        if ema50_series is None or ema50_series.empty:
+        if any(s is None or s.empty for s in [ema20_series, ema50_series, ema200_series]):
             return None
-        if ema200_series is None or ema200_series.empty:
-            return None
-        curr_ema50 = round(float(ema50_series.iloc[-1]), 2)
+        curr_ema20  = round(float(ema20_series.iloc[-1]),  2)
+        curr_ema50  = round(float(ema50_series.iloc[-1]),  2)
         curr_ema200 = round(float(ema200_series.iloc[-1]), 2)
-
-        if price <= curr_ema50:
-            logger.debug(f"{ticker} failed EMA50: Price={price}, EMA50={curr_ema50}")
-            return None
-
-        if price <= curr_ema200:
-            logger.debug(f"{ticker} failed EMA200: Price={price}, EMA200={curr_ema200}")
-            return None
-
-        # EMA20 — MA stacking and slope
-        ema20_series = ta.ema(df['Close'], length=20)
-        if ema20_series is None or ema20_series.empty:
-            return None
-        curr_ema20 = round(float(ema20_series.iloc[-1]), 2)
-
         if not (curr_ema20 > curr_ema50 > curr_ema200):
-            logger.debug(f"{ticker} failed MA stack: EMA20={curr_ema20}, EMA50={curr_ema50}, EMA200={curr_ema200}")
+            logger.debug(f"{ticker} failed EMA stack: {curr_ema20}/{curr_ema50}/{curr_ema200}")
             return None
 
-        _SLOPE = 5
-        if len(ema20_series) > _SLOPE and len(ema50_series) > _SLOPE and len(ema200_series) > _SLOPE:
-            if not (ema20_series.iloc[-1] > ema20_series.iloc[-1 - _SLOPE] and
-                    ema50_series.iloc[-1] > ema50_series.iloc[-1 - _SLOPE] and
-                    ema200_series.iloc[-1] > ema200_series.iloc[-1 - _SLOPE]):
-                logger.debug(f"{ticker} failed MA slope (5-bar)")
-                return None
+        # ── Display indicators (informational, not used as filters) ──────────
+        ema8_series = ta.ema(df['Close'], length=8)
+        curr_ema8   = round(float(ema8_series.iloc[-1]), 2) if ema8_series is not None and not ema8_series.empty else round(price, 2)
 
-        # A/D Line: must be trending up over last 20 bars
-        hl_range = (df['High'] - df['Low']).replace(0, float('nan'))
-        clv = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / hl_range
-        ad_line = (clv * df['Volume']).cumsum()
-        _AD = 20
-        if len(ad_line) > _AD and not pd.isna(ad_line.iloc[-1]) and not pd.isna(ad_line.iloc[-1 - _AD]):
-            if ad_line.iloc[-1] <= ad_line.iloc[-1 - _AD]:
-                logger.debug(f"{ticker} failed A/D trend")
-                return None
+        macd_result = ta.macd(df['Close'])
+        if macd_result is not None and not macd_result.empty:
+            _mc = next((c for c in macd_result.columns if c.startswith('MACD_')),  None)
+            _ms = next((c for c in macd_result.columns if c.startswith('MACDs_')), None)
+            _mh = next((c for c in macd_result.columns if c.startswith('MACDh_')), None)
+            curr_macd        = round(float(macd_result[_mc].iloc[-1]), 4) if _mc else 0.0
+            curr_macd_signal = round(float(macd_result[_ms].iloc[-1]), 4) if _ms else 0.0
+            curr_macd_hist   = round(float(macd_result[_mh].iloc[-1]), 4) if _mh else 0.0
+        else:
+            curr_macd = curr_macd_signal = curr_macd_hist = 0.0
 
         curr_sma50 = round(float(df['Close'].rolling(window=50).mean().iloc[-1]), 2)
 
@@ -324,89 +287,53 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             _bl = next((c for c in bb_result.columns if c.startswith('BBL_')), None)
             _bm = next((c for c in bb_result.columns if c.startswith('BBM_')), None)
             _bu = next((c for c in bb_result.columns if c.startswith('BBU_')), None)
-            curr_bb_lower = round(float(bb_result[_bl].iloc[-1]), 2) if _bl else round(price * 0.97, 2)
+            curr_bb_lower  = round(float(bb_result[_bl].iloc[-1]), 2) if _bl else round(price * 0.97, 2)
             curr_bb_middle = round(float(bb_result[_bm].iloc[-1]), 2) if _bm else round(price, 2)
-            curr_bb_upper = round(float(bb_result[_bu].iloc[-1]), 2) if _bu else round(price * 1.03, 2)
+            curr_bb_upper  = round(float(bb_result[_bu].iloc[-1]), 2) if _bu else round(price * 1.03, 2)
         else:
-            curr_bb_lower = round(price * 0.97, 2)
+            curr_bb_lower  = round(price * 0.97, 2)
             curr_bb_middle = round(price, 2)
-            curr_bb_upper = round(price * 1.03, 2)
-
-        # Breakout: price must close above upper band
-        if price <= curr_bb_upper:
-            logger.debug(f"{ticker} failed BB breakout: Price={price}, BB_upper={curr_bb_upper}")
-            return None
-
-        # Bands must be widening (volatility expanding into the breakout)
-        if bb_result is not None and _bu is not None and _bl is not None and len(bb_result) >= 2:
-            bb_width_now  = curr_bb_upper - curr_bb_lower
-            bb_width_prev = float(bb_result[_bu].iloc[-2]) - float(bb_result[_bl].iloc[-2])
-            if bb_width_now <= bb_width_prev:
-                logger.debug(f"{ticker} failed BB divergence: width={bb_width_now:.2f} vs prev={bb_width_prev:.2f}")
-                return None
+            curr_bb_upper  = round(price * 1.03, 2)
 
         atr_series = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-        curr_atr = round(float(atr_series.iloc[-1]), 2) if atr_series is not None and not atr_series.empty else round(price * 0.02, 2)
+        curr_atr   = round(float(atr_series.iloc[-1]), 2) if atr_series is not None and not atr_series.empty else round(price * 0.02, 2)
 
-        # ATR candle filter: breakout candle must be at least 1.5× ATR14
-        candle_range = float(df['High'].iloc[-1]) - float(df['Low'].iloc[-1])
-        if candle_range < CONFIG["ATR_CANDLE_MULT"] * curr_atr:
-            logger.debug(f"{ticker} failed ATR candle: range={candle_range:.2f}, {CONFIG['ATR_CANDLE_MULT']}×ATR={CONFIG['ATR_CANDLE_MULT']*curr_atr:.2f}")
-            return None
-
-        # Candle close quality: close must be in the top 35% of the day's range
-        day_high = float(df['High'].iloc[-1])
-        day_low  = float(df['Low'].iloc[-1])
-        hl_range = day_high - day_low
-        if hl_range > 0:
-            close_pos = (price - day_low) / hl_range
-            if close_pos < CONFIG["MIN_CLOSE_POSITION"]:
-                logger.debug(f"{ticker} failed close position: {close_pos:.2f} (need ≥ {CONFIG['MIN_CLOSE_POSITION']})")
-                return None
-
-        avg_vol_20 = float(df['Volume'].rolling(window=20).mean().iloc[-1])
-        vol_ratio = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
-
-        # RVOL filter: must be at least 2.5× average daily volume
-        if vol_ratio < CONFIG["MIN_RVOL"]:
-            logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")
-            return None
-
-        entry1 = round(price, 2)
-        entry2 = round(curr_ema8, 2)
-        entry3 = round(curr_bb_middle, 2)
-        stop1 = round(price - 1.0 * curr_atr, 2)
-        stop2 = round(curr_ema8 - 0.5 * curr_atr, 2)
-        stop3 = round(curr_sma50 - 0.5 * curr_atr, 2)
+        # Recovery entry / stop levels (3 scenarios for the snap-back trade)
+        entry1 = round(price,       2)   # buy today's close
+        entry2 = round(curr_ema8,   2)   # wait for EMA8 reclaim
+        entry3 = round(curr_sma200, 2)   # deep value at SMA200
+        stop1  = round(price      - 1.0 * curr_atr, 2)
+        stop2  = round(curr_ema8  - 0.5 * curr_atr, 2)
+        stop3  = round(curr_sma50 - 0.5 * curr_atr, 2)
 
         return {
-            "ticker": ticker,
-            "exchange": exchange,
-            "price": round(float(price), 2),
-            "change": round(float(day_change * 100), 2),
-            "volume": int(volume),
-            "vol_ratio": vol_ratio,
-            "market_cap": int(market_cap),
-            "rsi": curr_rsi,
-            "macd": curr_macd,
+            "ticker":      ticker,
+            "exchange":    exchange,
+            "price":       round(float(price), 2),
+            "change":      round(float(day_change * 100), 2),
+            "volume":      int(volume),
+            "vol_ratio":   vol_ratio,
+            "market_cap":  int(market_cap),
+            "rsi":         curr_rsi,
+            "macd":        curr_macd,
             "macd_signal": curr_macd_signal,
-            "macd_hist": curr_macd_hist,
-            "ema8": round(float(curr_ema8), 2),
-            "ema20": curr_ema20,
-            "ema50": curr_ema50,
-            "ema200": curr_ema200,
-            "sma50": curr_sma50,
-            "sma200": round(float(curr_sma200), 2),
-            "bb_upper": curr_bb_upper,
-            "bb_middle": curr_bb_middle,
-            "bb_lower": curr_bb_lower,
-            "atr14": curr_atr,
-            "entry1": entry1,
-            "entry2": entry2,
-            "entry3": entry3,
-            "stop1": stop1,
-            "stop2": stop2,
-            "stop3": stop3,
+            "macd_hist":   curr_macd_hist,
+            "ema8":        curr_ema8,
+            "ema20":       curr_ema20,
+            "ema50":       curr_ema50,
+            "ema200":      curr_ema200,
+            "sma50":       curr_sma50,
+            "sma200":      round(float(curr_sma200), 2),
+            "bb_upper":    curr_bb_upper,
+            "bb_middle":   curr_bb_middle,
+            "bb_lower":    curr_bb_lower,
+            "atr14":       curr_atr,
+            "entry1":      entry1,
+            "entry2":      entry2,
+            "entry3":      entry3,
+            "stop1":       stop1,
+            "stop2":       stop2,
+            "stop3":       stop3,
         }
     except Exception as e:
         logger.warning(f"Error processing {ticker} ({type(e).__name__}): {e}")

@@ -18,40 +18,36 @@
   </a>
 </p>
 
-A real-time technical stock screener that identifies momentum breakout setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
+A real-time technical stock screener that identifies oversold recovery setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
+
+**Strategy: oversold mean-reversion.** The screener buys panic selloffs in large-cap stocks that are still in structural uptrends. Calibrated from a 5-year reverse backtest (666K ticker-days): **68% 3-month win rate, +6.7% average return** — the empirically best achievable accuracy for S&P 500 large caps using technical filters.
 
 ---
 
 ## What it does
 
-On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies fourteen filters in sequence:
+On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies eight filters in sequence:
 
 | Filter | Threshold | Rationale |
 |--------|-----------|-----------|
-| Day change | > 4% | Strong single-day momentum |
+| Day change | < −5% | Panic selloff — entry signal for mean-reversion |
 | Market cap | > $1 B | Liquidity — eliminates micro/nano-caps |
 | Price | > $5 | Avoids penny stocks |
-| Volume | > 500 K shares | Confirms institutional participation |
-| RVOL | ≥ 2.5× | Volume spike vs. 20-day average — strong conviction |
-| SMA 200 | Price > 75% of SMA200 | Stock is in a long-term uptrend |
-| EMA 8 | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
-| RSI (14) | 55 – 70 | Momentum confirmed without being overbought |
-| MACD histogram | > 0 | Bullish crossover active (MACD line above signal) |
-| MA stack + slope | EMA20 > EMA50 > EMA200, all rising | Full trend alignment across timeframes |
-| A/D Line | Trending up over 20 days | Accumulation confirmed |
-| ATR candle | Candle range ≥ 1.5 × ATR14 | Meaningful breakout bar, not noise |
-| Close position | Close in top 35% of day's range | Rejects gap-and-fades and shooting stars |
-| Bollinger Band | Price > BB upper (20, 2) + bands widening | Confirmed volatility expansion breakout |
+| Volume | > 500 K shares | Confirms real participation on the selloff day |
+| RVOL | > 3.5× | Capitulation volume surge (panic, not routine selling) |
+| RSI (14) | < 30 | Extreme oversold / capitulation |
+| SMA 200 | Price > 75% of SMA200 | Structural uptrend still intact — not in freefall |
+| EMA stack | EMA20 > EMA50 > EMA200 | Macro trend aligned across all timeframes |
 
-Tickers that pass all fourteen filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
+Tickers that pass all eight filters are surfaced in the UI as potential recovery trade candidates and emailed at 12 PM ET on NYSE trading days. Recommended hold: **~63 trading days (3 months)**.
 
-Each result also includes computed swing trade levels:
+Each result also includes computed entry / stop levels for the snap-back trade:
 
 | # | Entry | Calculation | Stop | Calculation |
 |---|-------|-------------|------|-------------|
-| ① | Breakout now | current price | Tight | price − 1.0 × ATR14 |
-| ② | EMA8 pullback | EMA8 value | EMA8 undercut | EMA8 − 0.5 × ATR14 |
-| ③ | BB midline dip | BB middle (SMA20) | Trend break | SMA50 − 0.5 × ATR14 |
+| ① | Buy today | current price | Tight stop | price − 1.0 × ATR14 |
+| ② | EMA8 reclaim | EMA8 value | Under EMA8 | EMA8 − 0.5 × ATR14 |
+| ③ | SMA200 test | SMA200 value | Under SMA50 | SMA50 − 0.5 × ATR14 |
 
 Risk per share for each scenario is shown in the expanded row of the web UI table.
 
@@ -62,17 +58,17 @@ Every matched stock returns the following fields from `/api/scan`:
 | Field | Description | Filter? |
 |-------|-------------|---------|
 | `ticker`, `exchange` | Symbol and listing exchange | — |
-| `price`, `change` | Last price; day change % | — |
-| `volume` | Day volume (shares) | ≥ 500K |
-| `vol_ratio` | Volume ÷ 20-day avg volume | informational |
+| `price`, `change` | Last price; day change % | change < −5% |
+| `volume` | Day volume (shares) | > 500K |
+| `vol_ratio` | Volume ÷ 20-day avg volume | > 3.5× (RVOL) |
 | `market_cap` | Market capitalisation | > $1B |
-| `rsi` | RSI(14) | 55 – 70 |
-| `macd`, `macd_signal`, `macd_hist` | MACD line, signal, histogram | hist > 0 |
-| `ema8`, `ema20`, `ema50`, `ema200` | Exponential moving averages | price > EMA50, price > EMA200 |
+| `rsi` | RSI(14) | < 30 (extreme oversold) |
+| `macd`, `macd_signal`, `macd_hist` | MACD line, signal, histogram | informational |
+| `ema8`, `ema20`, `ema50`, `ema200` | Exponential moving averages | EMA20 > EMA50 > EMA200 |
 | `sma50`, `sma200` | Simple moving averages | price > 75% of SMA200 |
-| `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | price > BB upper + bands widening |
+| `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | informational |
 | `atr14` | Average True Range (14) | — |
-| `entry1/2/3` | Three swing entry price levels | — |
+| `entry1/2/3` | Three recovery entry price levels | — |
 | `stop1/2/3` | Corresponding stop loss levels | — |
 
 ---

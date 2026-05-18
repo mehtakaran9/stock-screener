@@ -3,7 +3,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import pandas_ta_classic as ta
-from unittest.mock import patch, MagicMock, AsyncMock, call
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from backend.scanner import (
     _is_rate_limit,
@@ -25,23 +25,28 @@ def run_screen(tickers):
     return asyncio.run(_collect())
 
 
-def make_passing_df(days=300, final_price=160.0, prev_price=152.0, volume=600_000):
-    """DataFrame where the last two closes give >3% change and natural indicators pass.
+def make_passing_df(days=300, final_price=150.0, prev_price=160.0, volume=2_000_000):
+    """Recovery setup: big red day, high panic volume.
 
-    The last bar gets `volume` shares; all prior bars get volume // 4.
-    This means the 20-day average ≈ volume // 4, so RVOL ≈ 4× ≥ 2.0.
+    Background vol = 300K, last bar = volume (default 2M).
+    Rolling 20-bar avg ≈ (19×300K + 2M)/20 = 385K → RVOL ≈ 5.2× > 3.5 ✓
+    Day change = (150 − 160)/160 = −6.25% < −5% ✓
+    Prices 100→155 then drop to 150; SMA200 ≈ 127 → 150 > 0.75×127 = 95 ✓
+    EMA20 > EMA50 > EMA200 holds naturally on rising base series ✓
+    RSI must be mocked to < 30 for full-pass tests.
     """
     dates = pd.date_range(end="2024-01-01", periods=days)
     prices = np.linspace(100.0, 155.0, days).copy()
     prices[-1] = final_price
     prices[-2] = prev_price
-    vols = np.full(days, volume // 4)
-    vols[-1] = volume  # last bar = 4× background volume → RVOL ≥ 2
+    BACKGROUND_VOL = 300_000
+    vols = np.full(days, BACKGROUND_VOL, dtype=float)
+    vols[-1] = float(volume)
     return pd.DataFrame({
-        "Open": prices * 0.99,
-        "High": prices * 1.01,
-        "Low": prices * 0.98,
-        "Close": prices,
+        "Open":   prices * 1.01,
+        "High":   prices * 1.02,
+        "Low":    prices * 0.97,
+        "Close":  prices,
         "Volume": vols,
     }, index=dates)
 
@@ -52,37 +57,10 @@ def multiindex(df, ticker="AAPL"):
 
 
 def mock_ema_side_effect(series, length=None, **kw):
-    # EMA20 > EMA50 > EMA200 satisfies MA stacking; each series gently rises by 0.01
-    # per bar so the slope check (iloc[-1] > iloc[-6]) always passes.
+    # EMA20 > EMA50 > EMA200 satisfies MA stacking; gently rising for slope check
     base = {8: 155.0, 20: 148.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
     n = len(series)
     return pd.Series([base + i * 0.01 for i in range(n)], index=series.index)
-
-
-def mock_macd_df(days=300, hist=0.5):
-    return pd.DataFrame({
-        "MACD_12_26_9": [1.0] * days,
-        "MACDs_12_26_9": [0.5] * days,
-        "MACDh_12_26_9": [hist] * days,
-    })
-
-
-def mock_bb_df(days=300, upper=170.0, middle=155.0, lower=140.0, upper_prev=None, lower_prev=None):
-    """Return a BB DataFrame.  upper/lower are the LAST row values.
-    upper_prev/lower_prev are the second-to-last row values (for divergence tests).
-    When omitted, the previous row is slightly narrower so divergence passes."""
-    if upper_prev is None:
-        upper_prev = upper - 1.0   # bands were narrower → now widening ✓
-    if lower_prev is None:
-        lower_prev = lower + 1.0
-    uppers  = [upper_prev] * (days - 1) + [upper]
-    middles = [middle]     * days
-    lowers  = [lower_prev] * (days - 1) + [lower]
-    return pd.DataFrame({
-        "BBL_20_2.0": lowers,
-        "BBM_20_2.0": middles,
-        "BBU_20_2.0": uppers,
-    })
 
 
 # ── _is_rate_limit ────────────────────────────────────────────────────────────
@@ -280,14 +258,14 @@ def test_get_full_market_tickers_replaces_dots_with_dashes(mock_get):
 
 # ── get_active_filters ────────────────────────────────────────────────────────
 
-def test_get_active_filters_returns_14():
+def test_get_active_filters_returns_8():
     filters = get_active_filters()
-    assert len(filters) == 14
+    assert len(filters) == 8
 
 
 def test_get_active_filters_contains_day_change():
     filters = get_active_filters()
-    assert any("Day Change" in f for f in filters)
+    assert any("Day change" in f for f in filters)
 
 
 # ── screen_stocks: early filter failures ─────────────────────────────────────
@@ -295,9 +273,9 @@ def test_get_active_filters_contains_day_change():
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
-    df = multiindex(make_passing_df(final_price=160.0, prev_price=152.0))
+    df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 500_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 500_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -305,7 +283,8 @@ def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
-    df = multiindex(make_passing_df(final_price=101.0, prev_price=100.0))  # 1% change
+    # +1% on the day — not a panic selloff (needs < −5%)
+    df = multiindex(make_passing_df(final_price=101.0, prev_price=100.0))
     mock_dl.return_value = df
     mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 101.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
@@ -315,42 +294,81 @@ def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_volume(mock_caps, mock_dl):
-    df = multiindex(make_passing_df(volume=100_000))  # below 500K
+    df = multiindex(make_passing_df(volume=100_000))  # 100K < 500K minimum
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
 
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-def test_screen_stocks_fails_sma200(mock_caps, mock_dl):
-    # Keep SMA200 ≈ 200 but set last price very low
+def test_screen_stocks_fails_rvol(mock_caps, mock_dl):
+    """Uniform volume across all bars → RVOL = 1.0 < 3.5× minimum."""
+    df = make_passing_df()
+    df["Volume"] = 600_000.0  # last bar same as average → RVOL = 1.0
+    df = multiindex(df)
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+def test_screen_stocks_fails_rsi_not_oversold(mock_rsi, mock_caps, mock_dl):
+    """RSI = 45 is not oversold enough — filter requires RSI < 30."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
+    mock_rsi.return_value = pd.Series([45.0] * 300)  # RSI >= 30 → fails filter
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+def test_screen_stocks_fails_sma200(mock_rsi, mock_caps, mock_dl):
+    """Stock in structural freefall: price < 75% of SMA200."""
     days = 300
     dates = pd.date_range(end="2024-01-01", periods=days)
     prices = np.full(days, 200.0)
-    prices[-1] = 10.0
-    prices[-2] = 9.5
+    prices[-1] = 100.0   # −9.1% drop (passes day_change filter)
+    prices[-2] = 110.0
+    BACKGROUND_VOL = 300_000
+    vols = np.full(days, BACKGROUND_VOL, dtype=float)
+    vols[-1] = 3_000_000.0   # RVOL ≈ 5.5× > 3.5 ✓
     df = pd.DataFrame({
-        "Open": prices * 0.99, "High": prices * 1.01,
-        "Low": prices * 0.98, "Close": prices, "Volume": 600_000,
+        "Open": prices * 1.01, "High": prices * 1.02,
+        "Low": prices * 0.97, "Close": prices, "Volume": vols,
     }, index=dates)
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 10.0}}
+    # price=100, SMA200≈200 → 100 < 0.75×200=150 → fails SMA200 ratio filter
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 100.0}}
+    mock_rsi.return_value = pd.Series([22.0] * days)  # pass RSI filter to reach SMA200 check
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
 
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.ema")
-def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
+def test_screen_stocks_fails_ema_stack(mock_ema, mock_rsi, mock_caps, mock_dl):
+    """Broken EMA stack (EMA20 < EMA50) — no macro uptrend."""
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    # EMA8 = 250 → 80% of 250 = 200 > price 160 → fails
-    mock_ema.side_effect = lambda s, length=None, **kw: pd.Series([250.0] * len(s), index=s.index)
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
+    mock_rsi.return_value = pd.Series([22.0] * 300)
+
+    def broken_stack(series, length=None, **kw):
+        val = {8: 155.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
+        return pd.Series([val + i * 0.01 for i in range(len(series))], index=series.index)
+
+    mock_ema.side_effect = broken_stack
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -362,7 +380,7 @@ def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
 def test_screen_stocks_skips_ticker_not_in_multiindex(mock_caps, mock_dl):
     df = multiindex(make_passing_df(), ticker="MSFT")  # only MSFT in data
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -373,7 +391,7 @@ def test_screen_stocks_skips_too_short_data(mock_caps, mock_dl):
     df = make_passing_df(days=100)  # only 100 rows
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -401,20 +419,18 @@ def test_screen_stocks_skips_zero_prev_close(mock_caps, mock_dl):
     df["Close"] = prices
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
 
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-def test_screen_stocks_non_multiindex_data(mock_ema, mock_caps, mock_dl):
+def test_screen_stocks_non_multiindex_data(mock_caps, mock_dl):
     """Single-ticker download may return a plain (non-MultiIndex) DataFrame."""
-    df = make_passing_df(final_price=101.0, prev_price=100.0)  # 1% → fails change
+    df = make_passing_df(final_price=101.0, prev_price=100.0)  # +1% → fails day_change filter
     mock_dl.return_value = df  # no MultiIndex
     mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 101.0}}
-    mock_ema.side_effect = mock_ema_side_effect
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -423,154 +439,12 @@ def test_screen_stocks_non_multiindex_data(mock_ema, mock_caps, mock_dl):
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_empty_download_raises_and_retries(mock_caps, mock_dl):
     """All download attempts return empty data → chunk error path."""
-    mock_dl.return_value = pd.DataFrame()  # triggers ValueError("Empty data returned")
+    mock_dl.return_value = pd.DataFrame()
     mock_caps.return_value = {}
     with patch("backend.scanner.asyncio.sleep"):
         results = run_screen(["AAPL"])
     progress_events = [r for r in results if isinstance(r, dict) and r.get("status") == "progress"]
-    assert len(progress_events) > 0  # progress still emitted via error path
-
-
-# ── screen_stocks: post-EMA8 filter failures ─────────────────────────────────
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([45.0] * 300)  # RSI < 55
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-def test_screen_stocks_fails_rsi_high(mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([75.0] * 300)  # RSI > 70
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
-def test_screen_stocks_fails_macd_hist(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = mock_macd_df(hist=-0.5)  # hist <= 0
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
-def test_screen_stocks_macd_none_uses_zero(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = None  # None → falls back to hist=0.0 → fails filter
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
-def test_screen_stocks_fails_ema50(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-
-    def ema_se(series, length=None, **kw):
-        val = {8: 155.0, 50: 200.0, 200: 110.0}.get(length, 140.0)  # EMA50=200 > price 160
-        return pd.Series([val] * len(series), index=series.index)
-
-    mock_ema.side_effect = ema_se
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
-def test_screen_stocks_fails_ema200(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-
-    def ema_se(series, length=None, **kw):
-        val = {8: 155.0, 50: 130.0, 200: 200.0}.get(length, 140.0)  # EMA200=200 > price 160
-        return pd.Series([val] * len(series), index=series.index)
-
-    mock_ema.side_effect = ema_se
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.bbands")
-def test_screen_stocks_fails_bb_upper(mock_bb, mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=170.0)  # price 160 < BB upper 170 → fails breakout
-    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-    assert results == []
-
-
-@patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
-@patch("backend.scanner.ta.bbands")
-def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
-    """When bbands returns None, fallback BB upper = price*1.03 > price → fails breakout filter."""
-    df = multiindex(make_passing_df())
-    mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
-    mock_bb.return_value = None
-
-    with patch("backend.scanner.ta.ema", side_effect=mock_ema_side_effect):
-        with patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300)):
-            with patch("backend.scanner.ta.macd", return_value=mock_macd_df(hist=0.5)):
-                with patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300)):
-                    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
-
-    # Fallback BB upper ≈ price * 1.03 = 164.8 > price 160 → price not above upper → no result
-    assert results == []
+    assert len(progress_events) > 0
 
 
 # ── screen_stocks: full passing run ──────────────────────────────────────────
@@ -578,28 +452,22 @@ def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
 @patch("yfinance.download")
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.rsi")
-@patch("backend.scanner.ta.macd")
 @patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr")
-def test_screen_stocks_success(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi, mock_caps, mock_dl):
+def test_screen_stocks_success(mock_ema, mock_rsi, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
 
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([60.0] * 300)
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    # upper=157 < price=160 → breakout passes; divergence: prev=(156,148)→now=(157,147) widens ✓
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    mock_atr.return_value = pd.Series([3.0] * 300)
+    mock_rsi.return_value = pd.Series([22.0] * 300)  # extreme oversold < 30 ✓
+    mock_ema.side_effect = mock_ema_side_effect       # EMA20 > EMA50 > EMA200 ✓
 
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
 
     assert len(results) == 1
     r = results[0]
     assert r["ticker"] == "AAPL"
-    assert r["change"] > 3
+    assert r["change"] < -5.0            # confirmed panic selloff
+    assert r["rsi"] < CONFIG["MAX_RSI"]  # extreme oversold
     assert r["exchange"] == "NASDAQ"
     assert r["vol_ratio"] >= CONFIG["MIN_RVOL"]
     assert "ema20" in r
@@ -608,140 +476,41 @@ def test_screen_stocks_success(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi,
     assert "entry3" in r and "stop3" in r
 
 
-# ── _filter_ticker — new filter tests ────────────────────────────────────────
+# ── _filter_ticker — direct filter tests ─────────────────────────────────────
 
-def _make_mc(price=160.0, last_volume=None):
+def _make_mc(price=150.0, last_volume=None):
     return {'AAPL': {'market_cap': 3e12, 'exchange': 'NASDAQ', 'last_price': price, 'last_volume': last_volume}}
 
 
-def _patches():
-    """Return a list of patch decorators for all TA mocks needed to reach late filters."""
-    return [
-        patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300)),
-        patch("backend.scanner.ta.macd"),
-        patch("backend.scanner.ta.ema"),
-        patch("backend.scanner.ta.bbands"),
-        patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300)),
-    ]
-
-
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([22.0] * 300))
 @patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_uses_fast_info_volume(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """fast_info last_volume overrides daily volume for the volume filter."""
+def test_filter_ticker_uses_fast_info_volume(mock_ema, mock_rsi):
+    """fast_info last_volume overrides df volume in the result."""
     mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    df = make_passing_df(volume=600_000)
-    result = _filter_ticker('AAPL', df, _make_mc(last_volume=800_000))
+    df = make_passing_df()  # last bar = 2M in df
+    result = _filter_ticker('AAPL', df, _make_mc(last_volume=3_000_000))  # fast_info = 3M
     assert result is not None
-    assert result['volume'] == 800_000
+    assert result['volume'] == 3_000_000
 
 
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([22.0] * 300))
 @patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_rvol_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when RVOL < MIN_RVOL (currently 2.5)."""
+def test_filter_ticker_rvol_filter(mock_ema, mock_rsi):
+    """Ticker is rejected when RVOL < 3.5× (uniform volume → RVOL = 1.0)."""
     mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    # Uniform volume → vol_ratio = 1.0 < 2.0
-    df = make_passing_df(volume=600_000)
-    df['Volume'] = 600_000  # override last bar so avg == last bar → RVOL = 1.0
-    result = _filter_ticker('AAPL', df, _make_mc())
-    assert result is None
-
-
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_atr_candle_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when breakout candle is smaller than 1.5× ATR14."""
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    # ATR=3, threshold=4.5; make candle tiny: High=160.5, Low=159.5 → range=1.0 < 4.5
     df = make_passing_df()
-    df['High'] = df['Close'] * 1.001
-    df['Low']  = df['Close'] * 0.999
+    df['Volume'] = 600_000.0  # uniform → rolling avg = last bar → RVOL = 1.0 < 3.5
     result = _filter_ticker('AAPL', df, _make_mc())
     assert result is None
 
 
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([22.0] * 300))
 @patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_ma_stacking_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+def test_filter_ticker_ma_stacking_filter(mock_ema, mock_rsi):
     """Ticker is rejected when EMAs are not stacked EMA20 > EMA50 > EMA200."""
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
     def bad_stack(series, length=None, **kw):
-        # EMA20 < EMA50 breaks the MA stack; EMA8=155 keeps price > 80% of EMA8
         val = {8: 155.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
         return pd.Series([val + i * 0.01 for i in range(len(series))], index=series.index)
     mock_ema.side_effect = bad_stack
     result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
     assert result is None
-
-
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_bb_breakout_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when price is at or below BB upper (no breakout)."""
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=170.0)  # price 160 < upper 170 → no breakout
-    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
-    assert result is None
-
-
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_bb_divergence_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when BB bands are not widening."""
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    # price (160) > upper (157), but bands narrowing: prev width=12, now width=8
-    mock_bb.return_value = mock_bb_df(
-        upper=157.0, lower=149.0,          # width now  = 8
-        upper_prev=158.0, lower_prev=146.0  # width prev = 12 → narrowing → fail
-    )
-    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
-    assert result is None
-
-
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([1.0] * 300))
-def test_filter_ticker_close_position_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when close is in the bottom 35% of the day's range."""
-    mock_ema.side_effect = mock_ema_side_effect
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    df = make_passing_df()
-    # High is 10% above close, Low is 1% below — close sits near the bottom of the range
-    # position = (close - low) / (high - low) = 0.01 / 0.11 ≈ 0.09 < 0.65 → FAIL
-    df['High'] = df['Close'] * 1.10
-    df['Low']  = df['Close'] * 0.99
-    result = _filter_ticker('AAPL', df, _make_mc())
-    assert result is None
-
-

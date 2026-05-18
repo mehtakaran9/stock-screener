@@ -3,18 +3,17 @@
 ## What
 This project is a **Technical Stock Screener** that identifies high-probability trading setups based on momentum and trend-following criteria. It scans the US stock market (S&P 500 constituents by default) and filters for stocks that are breaking out while maintaining structural strength.
 
-### Core Filters (14 total, applied in sequence):
-- **Momentum**: Day Change > 4%, RVOL ≥ 2.5×
+### Core Filters (8 total, applied in sequence):
+
+Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
+Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days): **68% 3-month win rate, +6.7% avg return**.
+
+- **Panic selloff**: Day Change < −5% (entry signal — the opposite of momentum)
 - **Liquidity**: Market Cap > $1B, Price > $5, Daily Volume > 500K shares
-- **Trend (SMA200)**: Price > 75% of SMA200
-- **Near-term support (EMA8)**: Price > 80% of EMA8
-- **RSI(14)**: 55 – 70 (momentum confirmed, not overbought)
-- **MACD histogram > 0**: bullish crossover active (MACD line above signal)
-- **MA Stack + Slope**: EMA20 > EMA50 > EMA200 (all three rising over last 5 bars)
-- **A/D Line**: trending up over 20 days (accumulation confirmed)
-- **ATR candle**: candle range ≥ 1.5 × ATR14 (meaningful breakout bar, not noise)
-- **Close quality**: close in top 35% of day's range (rejects gap-and-fades, shooting stars)
-- **Bollinger Band breakout**: price > BB upper (20, 2) + bands widening
+- **Capitulation volume**: RVOL > 3.5× vs. 20-day average (panic selling, not routine)
+- **Extreme oversold**: RSI(14) < 30 (capitulation-level reading)
+- **Structural uptrend (SMA200)**: Price > 75% of SMA200 (not in freefall)
+- **EMA Stack**: EMA20 > EMA50 > EMA200 (macro trend still aligned)
 
 ## Why
 - **FastAPI Backend**: Chosen for its high performance and native support for asynchronous streaming (SSE), allowing users to see results in real-time without waiting for a full market scan.
