@@ -9,9 +9,11 @@ from backend.scanner import (
     _is_rate_limit,
     _fetch_market_caps_bulk,
     _fetch_market_caps_bulk_async,
+    _filter_ticker,
     get_active_filters,
     get_full_market_tickers,
     screen_stocks,
+    CONFIG,
 )
 
 
@@ -24,17 +26,23 @@ def run_screen(tickers):
 
 
 def make_passing_df(days=300, final_price=160.0, prev_price=152.0, volume=600_000):
-    """DataFrame where the last two closes give >3% change and natural indicators pass."""
+    """DataFrame where the last two closes give >3% change and natural indicators pass.
+
+    The last bar gets `volume` shares; all prior bars get volume // 4.
+    This means the 20-day average ≈ volume // 4, so RVOL ≈ 4× ≥ 2.0.
+    """
     dates = pd.date_range(end="2024-01-01", periods=days)
     prices = np.linspace(100.0, 155.0, days).copy()
     prices[-1] = final_price
     prices[-2] = prev_price
+    vols = np.full(days, volume // 4)
+    vols[-1] = volume  # last bar = 4× background volume → RVOL ≥ 2
     return pd.DataFrame({
         "Open": prices * 0.99,
         "High": prices * 1.01,
         "Low": prices * 0.98,
         "Close": prices,
-        "Volume": volume,
+        "Volume": vols,
     }, index=dates)
 
 
@@ -44,8 +52,13 @@ def multiindex(df, ticker="AAPL"):
 
 
 def mock_ema_side_effect(series, length=None, **kw):
-    val = {8: 155.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
-    return pd.Series([val] * len(series), index=series.index)
+    # EMA20 > EMA50 > EMA200 satisfies MA stacking; each series gently rises by 0.01
+    # per bar so the slope check (iloc[-1] > iloc[-6]) always passes.
+    # EMA8 base is 143 so that make_passing_df's last 3 closes (≈154.8, 152, 160)
+    # all clear EMA8 (≈145.97–145.99), satisfying the TREND_CONFIRM_DAYS=3 filter.
+    base = {8: 143.0, 20: 148.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
+    n = len(series)
+    return pd.Series([base + i * 0.01 for i in range(n)], index=series.index)
 
 
 def mock_macd_df(days=300, hist=0.5):
@@ -56,11 +69,21 @@ def mock_macd_df(days=300, hist=0.5):
     })
 
 
-def mock_bb_df(days=300, upper=170.0, middle=155.0, lower=140.0):
+def mock_bb_df(days=300, upper=170.0, middle=155.0, lower=140.0, upper_prev=None, lower_prev=None):
+    """Return a BB DataFrame.  upper/lower are the LAST row values.
+    upper_prev/lower_prev are the second-to-last row values (for divergence tests).
+    When omitted, the previous row is slightly narrower so divergence passes."""
+    if upper_prev is None:
+        upper_prev = upper - 1.0   # bands were narrower → now widening ✓
+    if lower_prev is None:
+        lower_prev = lower + 1.0
+    uppers  = [upper_prev] * (days - 1) + [upper]
+    middles = [middle]     * days
+    lowers  = [lower_prev] * (days - 1) + [lower]
     return pd.DataFrame({
-        "BBL_20_2.0": [lower] * days,
-        "BBM_20_2.0": [middle] * days,
-        "BBU_20_2.0": [upper] * days,
+        "BBL_20_2.0": lowers,
+        "BBM_20_2.0": middles,
+        "BBU_20_2.0": uppers,
     })
 
 
@@ -259,9 +282,9 @@ def test_get_full_market_tickers_replaces_dots_with_dashes(mock_get):
 
 # ── get_active_filters ────────────────────────────────────────────────────────
 
-def test_get_active_filters_returns_11():
+def test_get_active_filters_returns_15():
     filters = get_active_filters()
-    assert len(filters) == 11
+    assert len(filters) == 15
 
 
 def test_get_active_filters_contains_day_change():
@@ -421,7 +444,7 @@ def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
     mock_dl.return_value = df
     mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
-    mock_rsi.return_value = pd.Series([45.0] * 300)  # RSI < 50
+    mock_rsi.return_value = pd.Series([45.0] * 300)  # RSI < 55
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -527,7 +550,7 @@ def test_screen_stocks_fails_bb_upper(mock_bb, mock_macd, mock_rsi, mock_ema, mo
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
     mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=150.0)  # BB upper=150 < price 160 → fails
+    mock_bb.return_value = mock_bb_df(upper=170.0)  # price 160 < BB upper 170 → fails breakout
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -536,7 +559,7 @@ def test_screen_stocks_fails_bb_upper(mock_bb, mock_macd, mock_rsi, mock_ema, mo
 @patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.bbands")
 def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
-    """When bbands returns None, fallback values are computed from price (price < BB upper)."""
+    """When bbands returns None, fallback BB upper = price*1.03 > price → fails breakout filter."""
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
     mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
@@ -548,8 +571,8 @@ def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
                 with patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300)):
                     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
 
-    # With fallback BB upper = price * 1.03 ≈ 164.8 > price 160 → should pass BB filter
-    assert len(results) == 1
+    # Fallback BB upper ≈ price * 1.03 = 164.8 > price 160 → price not above upper → no result
+    assert results == []
 
 
 # ── screen_stocks: full passing run ──────────────────────────────────────────
@@ -569,7 +592,8 @@ def test_screen_stocks_success(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi,
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
     mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=170.0, middle=155.0, lower=140.0)
+    # upper=157 < price=160 → breakout passes; divergence: prev=(156,148)→now=(157,147) widens ✓
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
     mock_atr.return_value = pd.Series([3.0] * 300)
 
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
@@ -579,7 +603,160 @@ def test_screen_stocks_success(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi,
     assert r["ticker"] == "AAPL"
     assert r["change"] > 3
     assert r["exchange"] == "NASDAQ"
-    assert r["vol_ratio"] > 0
+    assert r["vol_ratio"] >= CONFIG["MIN_RVOL"]
+    assert "ema20" in r
     assert "entry1" in r and "stop1" in r
     assert "entry2" in r and "stop2" in r
     assert "entry3" in r and "stop3" in r
+
+
+# ── _filter_ticker — new filter tests ────────────────────────────────────────
+
+def _make_mc(price=160.0, last_volume=None):
+    return {'AAPL': {'market_cap': 3e12, 'exchange': 'NASDAQ', 'last_price': price, 'last_volume': last_volume}}
+
+
+def _patches():
+    """Return a list of patch decorators for all TA mocks needed to reach late filters."""
+    return [
+        patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300)),
+        patch("backend.scanner.ta.macd"),
+        patch("backend.scanner.ta.ema"),
+        patch("backend.scanner.ta.bbands"),
+        patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300)),
+    ]
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_uses_fast_info_volume(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """fast_info last_volume overrides daily volume for the volume filter."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    df = make_passing_df(volume=600_000)
+    result = _filter_ticker('AAPL', df, _make_mc(last_volume=800_000))
+    assert result is not None
+    assert result['volume'] == 800_000
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_rvol_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when RVOL < MIN_RVOL (currently 2.5)."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    # Uniform volume → vol_ratio = 1.0 < 2.0
+    df = make_passing_df(volume=600_000)
+    df['Volume'] = 600_000  # override last bar so avg == last bar → RVOL = 1.0
+    result = _filter_ticker('AAPL', df, _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_atr_candle_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when breakout candle is smaller than 1.5× ATR14."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    # ATR=3, threshold=4.5; make candle tiny: High=160.5, Low=159.5 → range=1.0 < 4.5
+    df = make_passing_df()
+    df['High'] = df['Close'] * 1.001
+    df['Low']  = df['Close'] * 0.999
+    result = _filter_ticker('AAPL', df, _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_ma_stacking_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when EMAs are not stacked EMA20 > EMA50 > EMA200."""
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    def bad_stack(series, length=None, **kw):
+        # EMA8=143 keeps last-3-close trend check passing; EMA20 < EMA50 breaks the stack
+        val = {8: 143.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
+        return pd.Series([val + i * 0.01 for i in range(len(series))], index=series.index)
+    mock_ema.side_effect = bad_stack
+    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_bb_breakout_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when price is at or below BB upper (no breakout)."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=170.0)  # price 160 < upper 170 → no breakout
+    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_bb_divergence_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when BB bands are not widening."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    # price (160) > upper (157), but bands narrowing: prev width=12, now width=8
+    mock_bb.return_value = mock_bb_df(
+        upper=157.0, lower=149.0,          # width now  = 8
+        upper_prev=158.0, lower_prev=146.0  # width prev = 12 → narrowing → fail
+    )
+    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([1.0] * 300))
+def test_filter_ticker_close_position_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when close is in the bottom 35% of the day's range."""
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    df = make_passing_df()
+    # High is 10% above close, Low is 1% below — close sits near the bottom of the range
+    # position = (close - low) / (high - low) = 0.01 / 0.11 ≈ 0.09 < 0.65 → FAIL
+    df['High'] = df['Close'] * 1.10
+    df['Low']  = df['Close'] * 0.99
+    result = _filter_ticker('AAPL', df, _make_mc())
+    assert result is None
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
+@patch("backend.scanner.ta.macd")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands")
+@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
+def test_filter_ticker_multiday_ema8_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
+    """Ticker is rejected when not all of last 3 closes are above EMA8."""
+    mock_macd.return_value = mock_macd_df(hist=0.5)
+    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
+    # EMA8 = 200 for all bars → every Close (≤ 160) < 200 → multi-day check fails
+    mock_ema.side_effect = lambda s, length=None, **kw: pd.Series([200.0] * len(s), index=s.index)
+    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
+    assert result is None

@@ -34,7 +34,7 @@ const stockPayload = (ticker = 'AAPL') => ({
     ticker, exchange: 'NASDAQ', price: 213.45, change: 3.82,
     volume: 52_300_000, vol_ratio: 2.3, market_cap: 3_290_000_000_000,
     rsi: 61.5, macd: 1.23, macd_signal: 0.98, macd_hist: 0.25,
-    ema8: 208.12, ema50: 195.40, ema200: 178.30, sma50: 194.80, sma200: 185.60,
+    ema8: 208.12, ema20: 203.50, ema50: 195.40, ema200: 178.30, sma50: 194.80, sma200: 185.60,
     bb_upper: 225.10, bb_middle: 210.50, bb_lower: 195.90, atr14: 4.25,
     entry1: 213.45, entry2: 208.12, entry3: 210.50,
     stop1: 209.20, stop2: 205.99, stop3: 192.67,

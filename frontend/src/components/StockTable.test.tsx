@@ -15,6 +15,7 @@ const makeStock = (overrides: Partial<Stock> = {}): Stock => ({
   macd_signal: 0.98,
   macd_hist: 0.25,
   ema8: 208.12,
+  ema20: 203.50,
   ema50: 195.40,
   ema200: 178.30,
   sma50: 194.80,

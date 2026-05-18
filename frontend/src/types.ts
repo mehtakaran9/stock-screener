@@ -11,6 +11,7 @@ export interface Stock {
   macd_signal: number;
   macd_hist: number;
   ema8: number;
+  ema20: number;
   ema50: number;
   ema200: number;
   sma50: number;

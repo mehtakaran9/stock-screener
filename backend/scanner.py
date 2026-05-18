@@ -40,12 +40,18 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Screening Parameters (Single Source of Truth)
 CONFIG = {
-    "MIN_MARKET_CAP": 1_000_000_000,
-    "MIN_PRICE": 5.0,
-    "MIN_DAY_CHANGE": 0.03,
-    "MIN_VOLUME": 500_000,
-    "SMA200_RATIO": 0.75,
-    "EMA8_RATIO": 0.80
+    "MIN_MARKET_CAP":     1_000_000_000,
+    "MIN_PRICE":          5.0,
+    "MIN_DAY_CHANGE":     0.04,   # 4% — raised from 3% (winners averaged +6.8%)
+    "MIN_VOLUME":         500_000,
+    "SMA200_RATIO":       0.75,
+    "EMA8_RATIO":         0.80,
+    "MIN_RVOL":           2.5,    # raised from 2.0 — sub-2.5 signals showed poor win rate
+    "MIN_RSI":            55,
+    "MAX_RSI":            70,
+    "ATR_CANDLE_MULT":    1.5,
+    "MIN_CLOSE_POSITION": 0.65,   # close must be in top 35% of day's range
+    "TREND_CONFIRM_DAYS": 3,      # last N closes must all be above EMA8
 }
 
 _RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
@@ -72,11 +78,13 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, dict]:
                 fi = yf.Ticker(ticker).fast_info
                 mc = fi.market_cap
                 lp = fi.last_price
+                lv = fi.last_volume
                 exc = _EXCHANGE_MAP.get(getattr(fi, 'exchange', ''), 'NASDAQ')
                 result[ticker] = {
                     'market_cap': float(mc) if mc is not None else 0.0,
                     'exchange': exc,
                     'last_price': float(lp) if lp is not None else None,
+                    'last_volume': int(lv) if lv is not None else None,
                 }
                 break
             except Exception as e:
@@ -87,10 +95,10 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, dict]:
                 else:
                     if _is_rate_limit(e):
                         logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap NASDAQ")
-                        result[ticker] = {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ', 'last_price': None}
+                        result[ticker] = {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ', 'last_price': None, 'last_volume': None}
                     else:
                         logger.debug(f"Could not fetch market cap for {ticker}: {e}")
-                        result[ticker] = {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None}
+                        result[ticker] = {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None, 'last_volume': None}
                     break
     return result
 
@@ -108,11 +116,13 @@ async def _fetch_market_caps_bulk_async(chunk: list[str], semaphore: asyncio.Sem
                     fi = await asyncio.to_thread(lambda t=ticker: yf.Ticker(t).fast_info)
                     mc = fi.market_cap
                     lp = fi.last_price
+                    lv = fi.last_volume
                     exc = _EXCHANGE_MAP.get(getattr(fi, 'exchange', ''), 'NASDAQ')
                     return ticker, {
                         'market_cap': float(mc) if mc is not None else 0.0,
                         'exchange': exc,
                         'last_price': float(lp) if lp is not None else None,
+                        'last_volume': int(lv) if lv is not None else None,
                     }
                 except Exception as e:
                     if _is_rate_limit(e) and attempt < 3:
@@ -122,10 +132,10 @@ async def _fetch_market_caps_bulk_async(chunk: list[str], semaphore: asyncio.Sem
                         continue
                     if _is_rate_limit(e):
                         logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap NASDAQ")
-                        return ticker, {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ', 'last_price': None}
+                        return ticker, {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ', 'last_price': None, 'last_volume': None}
                     logger.debug(f"Could not fetch market cap for {ticker}: {e}")
-                    return ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None}
-        return ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None}
+                    return ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None, 'last_volume': None}
+        return ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None, 'last_volume': None}
 
     pairs = await asyncio.gather(*[fetch_one(t) for t in chunk])
     return dict(pairs)
@@ -137,13 +147,17 @@ def get_active_filters():
         f"Market Cap > ${CONFIG['MIN_MARKET_CAP']/1_000_000_000:.0f}B",
         f"Price > ${CONFIG['MIN_PRICE']}",
         f"Volume > {CONFIG['MIN_VOLUME']/1000:.0f}K",
+        f"RVOL ≥ {CONFIG['MIN_RVOL']}×",
         f"Price > {int(CONFIG['SMA200_RATIO']*100)}% of SMA200",
         f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of EMA8",
-        "RSI(14) 50–70",
+        f"Price above EMA8 for last {CONFIG['TREND_CONFIRM_DAYS']} days",
+        f"RSI(14) {CONFIG['MIN_RSI']}–{CONFIG['MAX_RSI']}",
         "MACD Hist > 0",
-        "Price > EMA50",
-        "Price > EMA200",
-        "Price < BB Upper",
+        "Price > EMA20 > EMA50 > EMA200 (all sloping up)",
+        "A/D Line trending up (20-day)",
+        f"ATR candle ≥ {CONFIG['ATR_CANDLE_MULT']}× ATR14",
+        f"Close in top {int((1-CONFIG['MIN_CLOSE_POSITION'])*100)}% of day's range",
+        "Price above BB Upper (20, 2) + bands widening",
     ]
 
 FALLBACK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
@@ -201,7 +215,10 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             logger.debug(f"{ticker} prev_close is zero")
             return None
         day_change = (price - prev_close) / prev_close
-        volume = int(raw_vol)
+
+        # Prefer fast_info session-cumulative volume (same source as last_price).
+        live_vol = info.get('last_volume')
+        volume = live_vol if live_vol is not None else int(raw_vol)
 
         if market_cap < CONFIG["MIN_MARKET_CAP"] or price <= CONFIG["MIN_PRICE"]:
             logger.debug(f"{ticker} failed MC/Price: MC={market_cap}, Price={price}")
@@ -228,6 +245,13 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             return None
         curr_ema8 = float(ema8_series.iloc[-1])
 
+        # Multi-day EMA8 trend confirmation: last N closes must all be above EMA8
+        _TREND = CONFIG["TREND_CONFIRM_DAYS"]
+        if len(ema8_series) >= _TREND and len(df) >= _TREND:
+            if not (df['Close'].iloc[-_TREND:].values > ema8_series.iloc[-_TREND:].values).all():
+                logger.debug(f"{ticker} failed multi-day EMA8 ({_TREND}-day trend)")
+                return None
+
         if price < curr_ema8 * CONFIG["EMA8_RATIO"]:
             logger.debug(f"{ticker} below {CONFIG['EMA8_RATIO']*100}% 8EMA range: Price={price}, 8EMA={curr_ema8}")
             return None
@@ -248,7 +272,7 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
         else:
             curr_macd = curr_macd_signal = curr_macd_hist = 0.0
 
-        if not (50 <= curr_rsi <= 70):
+        if not (CONFIG["MIN_RSI"] <= curr_rsi <= CONFIG["MAX_RSI"]):
             logger.debug(f"{ticker} failed RSI: {curr_rsi:.1f}")
             return None
 
@@ -274,6 +298,34 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             logger.debug(f"{ticker} failed EMA200: Price={price}, EMA200={curr_ema200}")
             return None
 
+        # EMA20 — MA stacking and slope
+        ema20_series = ta.ema(df['Close'], length=20)
+        if ema20_series is None or ema20_series.empty:
+            return None
+        curr_ema20 = round(float(ema20_series.iloc[-1]), 2)
+
+        if not (curr_ema20 > curr_ema50 > curr_ema200):
+            logger.debug(f"{ticker} failed MA stack: EMA20={curr_ema20}, EMA50={curr_ema50}, EMA200={curr_ema200}")
+            return None
+
+        _SLOPE = 5
+        if len(ema20_series) > _SLOPE and len(ema50_series) > _SLOPE and len(ema200_series) > _SLOPE:
+            if not (ema20_series.iloc[-1] > ema20_series.iloc[-1 - _SLOPE] and
+                    ema50_series.iloc[-1] > ema50_series.iloc[-1 - _SLOPE] and
+                    ema200_series.iloc[-1] > ema200_series.iloc[-1 - _SLOPE]):
+                logger.debug(f"{ticker} failed MA slope (5-bar)")
+                return None
+
+        # A/D Line: must be trending up over last 20 bars
+        hl_range = (df['High'] - df['Low']).replace(0, float('nan'))
+        clv = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / hl_range
+        ad_line = (clv * df['Volume']).cumsum()
+        _AD = 20
+        if len(ad_line) > _AD and not pd.isna(ad_line.iloc[-1]) and not pd.isna(ad_line.iloc[-1 - _AD]):
+            if ad_line.iloc[-1] <= ad_line.iloc[-1 - _AD]:
+                logger.debug(f"{ticker} failed A/D trend")
+                return None
+
         curr_sma50 = round(float(df['Close'].rolling(window=50).mean().iloc[-1]), 2)
 
         bb_result = ta.bbands(df['Close'], length=20, std=2)
@@ -289,15 +341,45 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             curr_bb_middle = round(price, 2)
             curr_bb_upper = round(price * 1.03, 2)
 
-        if price >= curr_bb_upper:
-            logger.debug(f"{ticker} failed BB upper: Price={price}, BB_upper={curr_bb_upper}")
+        # Breakout: price must close above upper band
+        if price <= curr_bb_upper:
+            logger.debug(f"{ticker} failed BB breakout: Price={price}, BB_upper={curr_bb_upper}")
             return None
+
+        # Bands must be widening (volatility expanding into the breakout)
+        if bb_result is not None and _bu is not None and _bl is not None and len(bb_result) >= 2:
+            bb_width_now  = curr_bb_upper - curr_bb_lower
+            bb_width_prev = float(bb_result[_bu].iloc[-2]) - float(bb_result[_bl].iloc[-2])
+            if bb_width_now <= bb_width_prev:
+                logger.debug(f"{ticker} failed BB divergence: width={bb_width_now:.2f} vs prev={bb_width_prev:.2f}")
+                return None
 
         atr_series = ta.atr(df['High'], df['Low'], df['Close'], length=14)
         curr_atr = round(float(atr_series.iloc[-1]), 2) if atr_series is not None and not atr_series.empty else round(price * 0.02, 2)
 
+        # ATR candle filter: breakout candle must be at least 1.5× ATR14
+        candle_range = float(df['High'].iloc[-1]) - float(df['Low'].iloc[-1])
+        if candle_range < CONFIG["ATR_CANDLE_MULT"] * curr_atr:
+            logger.debug(f"{ticker} failed ATR candle: range={candle_range:.2f}, {CONFIG['ATR_CANDLE_MULT']}×ATR={CONFIG['ATR_CANDLE_MULT']*curr_atr:.2f}")
+            return None
+
+        # Candle close quality: close must be in the top 35% of the day's range
+        day_high = float(df['High'].iloc[-1])
+        day_low  = float(df['Low'].iloc[-1])
+        hl_range = day_high - day_low
+        if hl_range > 0:
+            close_pos = (price - day_low) / hl_range
+            if close_pos < CONFIG["MIN_CLOSE_POSITION"]:
+                logger.debug(f"{ticker} failed close position: {close_pos:.2f} (need ≥ {CONFIG['MIN_CLOSE_POSITION']})")
+                return None
+
         avg_vol_20 = float(df['Volume'].rolling(window=20).mean().iloc[-1])
         vol_ratio = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+
+        # RVOL filter: must be at least 2.5× average daily volume
+        if vol_ratio < CONFIG["MIN_RVOL"]:
+            logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")
+            return None
 
         entry1 = round(price, 2)
         entry2 = round(curr_ema8, 2)
@@ -319,6 +401,7 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             "macd_signal": curr_macd_signal,
             "macd_hist": curr_macd_hist,
             "ema8": round(float(curr_ema8), 2),
+            "ema20": curr_ema20,
             "ema50": curr_ema50,
             "ema200": curr_ema200,
             "sma50": curr_sma50,
@@ -345,6 +428,18 @@ async def screen_stocks(tickers: List[str]):
     Yields results (dict) or progress events as they are processed.
     Up to 5 chunks download in parallel; fast_info calls are capped at 20 concurrent.
     """
+    # Market regime gate: warn if SPY is below its 10-day EMA
+    try:
+        spy_raw = yf.download('SPY', period='30d', progress=False, threads=False)
+        spy_close = spy_raw['Close'].dropna()
+        if isinstance(spy_raw.columns, pd.MultiIndex):
+            spy_close = spy_raw['Close']['SPY'].dropna()
+        spy_ema10 = spy_close.ewm(span=10, adjust=False).mean()
+        if float(spy_close.iloc[-1]) < float(spy_ema10.iloc[-1]):
+            yield {"status": "warning", "message": "Market regime: SPY below 10-EMA — breakout signals less reliable today"}
+    except Exception:
+        pass
+
     period = "2y"
     chunk_size = 50
     chunks = [tickers[i:i + chunk_size] for i in range(0, len(tickers), chunk_size)]

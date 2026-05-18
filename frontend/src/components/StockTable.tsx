@@ -182,6 +182,7 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
                           <div className="ma-grid">
                             {[
                               ['EMA 8', stock.ema8],
+                              ['EMA 20', stock.ema20],
                               ['EMA 50', stock.ema50],
                               ['EMA 200', stock.ema200],
                               ['SMA 50', stock.sma50],
