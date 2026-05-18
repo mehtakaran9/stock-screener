@@ -3,11 +3,12 @@ import pytest
 import pandas as pd
 import numpy as np
 import pandas_ta_classic as ta
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock, AsyncMock, call
 
 from backend.scanner import (
     _is_rate_limit,
     _fetch_market_caps_bulk,
+    _fetch_market_caps_bulk_async,
     get_active_filters,
     get_full_market_tickers,
     screen_stocks,
@@ -160,6 +161,71 @@ def test_fetch_market_caps_rate_limit_then_success():
     assert result["AAPL"]["last_price"] == 150.0
 
 
+# ── _fetch_market_caps_bulk_async ────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_market_caps_bulk_async_success():
+    mock_ticker = MagicMock()
+    mock_ticker.fast_info.market_cap = 2_000_000_000.0
+    mock_ticker.fast_info.exchange = "NMS"
+    mock_ticker.fast_info.last_price = 150.0
+
+    semaphore = asyncio.Semaphore(5)
+    with patch("backend.scanner.yf.Ticker", return_value=mock_ticker):
+        with patch("backend.scanner.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+            mock_to_thread.return_value = mock_ticker.fast_info
+            result = await _fetch_market_caps_bulk_async(["AAPL"], semaphore)
+
+    assert result["AAPL"]["market_cap"] == 2_000_000_000.0
+    assert result["AAPL"]["exchange"] == "NASDAQ"
+    assert result["AAPL"]["last_price"] == 150.0
+
+
+@pytest.mark.asyncio
+async def test_fetch_market_caps_bulk_async_concurrent():
+    """All tickers in the chunk appear in the result (gathered concurrently)."""
+    tickers = ["AAPL", "MSFT", "GOOGL"]
+
+    def make_fi():
+        fi = MagicMock()
+        fi.market_cap = 2_000_000_000.0
+        fi.exchange = "NMS"
+        fi.last_price = 150.0
+        return fi
+
+    semaphore = asyncio.Semaphore(10)
+    with patch("backend.scanner.asyncio.to_thread", new_callable=AsyncMock, return_value=make_fi()):
+        result = await _fetch_market_caps_bulk_async(tickers, semaphore)
+
+    assert set(result.keys()) == set(tickers)
+    assert all(result[t]["last_price"] == 150.0 for t in tickers)
+    assert all(result[t]["market_cap"] == 2_000_000_000.0 for t in tickers)
+
+
+@pytest.mark.asyncio
+async def test_fetch_market_caps_bulk_async_rate_limit_fallback():
+    class YfRateLimitError(Exception):
+        pass
+
+    semaphore = asyncio.Semaphore(5)
+    with patch("backend.scanner.asyncio.to_thread", new_callable=AsyncMock, side_effect=YfRateLimitError("rate limit")):
+        with patch("backend.scanner.asyncio.sleep", new_callable=AsyncMock):
+            result = await _fetch_market_caps_bulk_async(["AAPL"], semaphore)
+
+    assert result["AAPL"]["market_cap"] > 0  # fallback large-cap
+    assert result["AAPL"]["last_price"] is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_market_caps_bulk_async_non_rate_limit_error():
+    semaphore = asyncio.Semaphore(5)
+    with patch("backend.scanner.asyncio.to_thread", new_callable=AsyncMock, side_effect=ValueError("unexpected")):
+        result = await _fetch_market_caps_bulk_async(["AAPL"], semaphore)
+
+    assert result["AAPL"]["market_cap"] == 0.0
+    assert result["AAPL"]["last_price"] is None
+
+
 # ── get_full_market_tickers ───────────────────────────────────────────────────
 
 @patch("backend.scanner.requests.get")
@@ -206,7 +272,7 @@ def test_get_active_filters_contains_day_change():
 # ── screen_stocks: early filter failures ─────────────────────────────────────
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
     df = multiindex(make_passing_df(final_price=160.0, prev_price=152.0))
     mock_dl.return_value = df
@@ -216,7 +282,7 @@ def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
     df = multiindex(make_passing_df(final_price=101.0, prev_price=100.0))  # 1% change
     mock_dl.return_value = df
@@ -226,7 +292,7 @@ def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_volume(mock_caps, mock_dl):
     df = multiindex(make_passing_df(volume=100_000))  # below 500K
     mock_dl.return_value = df
@@ -236,7 +302,7 @@ def test_screen_stocks_fails_volume(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_fails_sma200(mock_caps, mock_dl):
     # Keep SMA200 ≈ 200 but set last price very low
     days = 300
@@ -256,7 +322,7 @@ def test_screen_stocks_fails_sma200(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
@@ -271,7 +337,7 @@ def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
 # ── screen_stocks: data quality checks ───────────────────────────────────────
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_skips_ticker_not_in_multiindex(mock_caps, mock_dl):
     df = multiindex(make_passing_df(), ticker="MSFT")  # only MSFT in data
     mock_dl.return_value = df
@@ -281,7 +347,7 @@ def test_screen_stocks_skips_ticker_not_in_multiindex(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_skips_too_short_data(mock_caps, mock_dl):
     df = make_passing_df(days=100)  # only 100 rows
     df = multiindex(df)
@@ -292,7 +358,7 @@ def test_screen_stocks_skips_too_short_data(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_skips_nan_price(mock_caps, mock_dl):
     df = make_passing_df()
     prices = df["Close"].values.copy()
@@ -306,7 +372,7 @@ def test_screen_stocks_skips_nan_price(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_skips_zero_prev_close(mock_caps, mock_dl):
     df = make_passing_df()
     prices = df["Close"].values.copy()
@@ -320,7 +386,7 @@ def test_screen_stocks_skips_zero_prev_close(mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 def test_screen_stocks_non_multiindex_data(mock_ema, mock_caps, mock_dl):
     """Single-ticker download may return a plain (non-MultiIndex) DataFrame."""
@@ -333,7 +399,7 @@ def test_screen_stocks_non_multiindex_data(mock_ema, mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 def test_screen_stocks_empty_download_raises_and_retries(mock_caps, mock_dl):
     """All download attempts return empty data → chunk error path."""
     mock_dl.return_value = pd.DataFrame()  # triggers ValueError("Empty data returned")
@@ -347,7 +413,7 @@ def test_screen_stocks_empty_download_raises_and_retries(mock_caps, mock_dl):
 # ── screen_stocks: post-EMA8 filter failures ─────────────────────────────────
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
@@ -361,7 +427,7 @@ def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 def test_screen_stocks_fails_rsi_high(mock_rsi, mock_ema, mock_caps, mock_dl):
@@ -375,7 +441,7 @@ def test_screen_stocks_fails_rsi_high(mock_rsi, mock_ema, mock_caps, mock_dl):
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
@@ -391,7 +457,7 @@ def test_screen_stocks_fails_macd_hist(mock_macd, mock_rsi, mock_ema, mock_caps,
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
@@ -407,7 +473,7 @@ def test_screen_stocks_macd_none_uses_zero(mock_macd, mock_rsi, mock_ema, mock_c
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
@@ -428,7 +494,7 @@ def test_screen_stocks_fails_ema50(mock_macd, mock_rsi, mock_ema, mock_caps, moc
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
@@ -449,7 +515,7 @@ def test_screen_stocks_fails_ema200(mock_macd, mock_rsi, mock_ema, mock_caps, mo
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.ema")
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
@@ -467,7 +533,7 @@ def test_screen_stocks_fails_bb_upper(mock_bb, mock_macd, mock_rsi, mock_ema, mo
 
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.bbands")
 def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
     """When bbands returns None, fallback values are computed from price (price < BB upper)."""
@@ -489,7 +555,7 @@ def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
 # ── screen_stocks: full passing run ──────────────────────────────────────────
 
 @patch("yfinance.download")
-@patch("backend.scanner._fetch_market_caps_bulk")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
 @patch("backend.scanner.ta.rsi")
 @patch("backend.scanner.ta.macd")
 @patch("backend.scanner.ta.ema")
