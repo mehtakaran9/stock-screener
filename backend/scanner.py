@@ -375,20 +375,19 @@ async def screen_stocks(tickers: List[str]):
             for attempt in range(retries):
                 try:
                     async with chunk_semaphore:
-                        # Download history and fetch live prices concurrently
-                        data, market_caps = await asyncio.gather(
-                            asyncio.wait_for(
-                                asyncio.to_thread(
-                                    yf.download, chunk,
-                                    period=period, group_by='ticker', progress=False, threads=False
-                                ),
-                                timeout=18000.0
+                        data = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                yf.download, chunk,
+                                period=period, group_by='ticker', progress=False, threads=False
                             ),
-                            _fetch_market_caps_bulk_async(chunk, fast_info_semaphore),
+                            timeout=18000.0,
                         )
-                    # Semaphore released — next chunk can start downloading while we process indicators
+                    # Semaphore released — next chunk can start downloading.
                     if data is None or data.empty:
                         raise ValueError("Empty data returned")
+                    # fast_info calls run concurrently with other chunks' downloads,
+                    # bounded only by fast_info_semaphore(20).
+                    market_caps = await _fetch_market_caps_bulk_async(chunk, fast_info_semaphore)
                     break
                 except Exception as e:
                     if attempt < retries - 1:

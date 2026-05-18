@@ -17,14 +17,14 @@ function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [scanComplete, setScanComplete] = useState<{ total: number } | null>(null);
-  const [startTime, setStartTime] = useState<number | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
-  const scanStartTimeRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeControllerRef = useRef<AbortController | null>(null);
+  const smoothedRateRef = useRef<number>(0);
+  const prevProgressRef = useRef<{ time: number; current: number } | null>(null);
 
   useEffect(() => {
     fetchFilters();
@@ -54,8 +54,8 @@ function App() {
     setProgress(null);
     setScanComplete(null);
     setScanWarning(null);
-    setStartTime(null);
-    scanStartTimeRef.current = null;
+    smoothedRateRef.current = 0;
+    prevProgressRef.current = null;
 
     setIsWaking(true);
     const controller = new AbortController();
@@ -86,10 +86,18 @@ function App() {
         if (data.status === 'warning') {
           setScanWarning(data.message);
         } else if (data.status === 'progress') {
-          if (scanStartTimeRef.current === null) {
+          if (data.current > 0) {
             const now = Date.now();
-            scanStartTimeRef.current = now;
-            setStartTime(now);
+            const prev = prevProgressRef.current;
+            if (prev && now > prev.time) {
+              const instantRate = (data.current - prev.current) / ((now - prev.time) / 1000);
+              if (instantRate > 0) {
+                smoothedRateRef.current = smoothedRateRef.current === 0
+                  ? instantRate
+                  : 0.1 * instantRate + 0.9 * smoothedRateRef.current;
+              }
+            }
+            prevProgressRef.current = { time: now, current: data.current };
           }
           setProgress({ total: data.total, current: data.current, ticker: data.ticker });
         } else if (data.status === 'result') {
@@ -119,18 +127,13 @@ function App() {
   };
 
   const calculateETA = () => {
-    if (!progress || !startTime || progress.current === 0) return 'Calculating...';
-
-    const elapsed = (Date.now() - startTime) / 1000;
-    if (elapsed === 0) return 'Calculating...';
-    const rate = progress.current / elapsed;
+    if (!progress || progress.current === 0) return 'Downloading data...';
+    const rate = smoothedRateRef.current;
+    if (rate === 0) return 'Calculating...';
     const remaining = (progress.total - progress.current) / rate;
-    // Round to nearest 5s so burst-driven micro-changes don't flicker the display
     const rounded = Math.ceil(remaining / 5) * 5;
-
     const mins = Math.floor(rounded / 60);
     const secs = rounded % 60;
-
     return `${mins}m ${secs}s`;
   };
 

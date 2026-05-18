@@ -111,10 +111,10 @@ describe('App — SSE events', () => {
     expect(screen.getByText(/Scanning: MSFT/)).toBeInTheDocument()
   })
 
-  it('shows Calculating… ETA on progress event with current = 0', async () => {
+  it('shows Downloading data… ETA on progress event with current = 0', async () => {
     const es = await renderAndWaitForES()
     act(() => { es.emit({ status: 'progress', total: 100, current: 0 }) })
-    expect(screen.getByText(/Calculating\.\.\./)).toBeInTheDocument()
+    expect(screen.getByText(/Downloading data\.\.\./)).toBeInTheDocument()
   })
 
   it('shows ETA when progress current > 0', async () => {
