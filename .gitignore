@@ -16,6 +16,10 @@ backend/recipients.txt
 
 # Logs
 *.log
+*.log.*
+
+# Backtest data cache (large pickle files, instance-local)
+backend/_backtest_cache/
 
 # Test & coverage artefacts
 .coverage
