@@ -26,3 +26,6 @@ frontend/coverage/
 # Python eggs / builds
 *.egg-info/
 build/
+
+# graphify
+graphify-out/
