@@ -33,7 +33,7 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | Price | > $5 | Avoids penny stocks |
 | Volume | > 500 K shares | Confirms institutional participation |
 | SMA 200 | Price > 75% of SMA200 | Stock is in a long-term uptrend |
-| EMA 8 | Price > 80% of EMA8 | Stock is near near-term momentum, not extended |
+| EMA 8 | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
 | RSI (14) | 50 – 70 | Momentum confirmed without being overbought |
 | MACD histogram | > 0 | Bullish crossover active (MACD line above signal) |
 | EMA 50 | Price > EMA50 | Medium-term uptrend intact |
@@ -152,7 +152,11 @@ The frontend talks to `http://localhost:8000` by default (`VITE_API_URL` unset).
 ### Running tests
 
 ```bash
+# Backend
 python3 -m pytest backend/ -v
+
+# Frontend
+cd frontend && npm run test
 ```
 
 ---
@@ -205,6 +209,7 @@ The web UI exposes all output fields (see table above) and adds an expandable ro
 |---------|---------|
 | `fastapi` + `uvicorn` | Async HTTP server with SSE streaming |
 | `yfinance` | OHLCV data downloads + market cap via `fast_info` |
+| `pandas` | DataFrame-based OHLCV processing and rolling indicator windows |
 | `pandas-ta-classic` | EMA / SMA calculation (NumPy 2.0 compatible fork) |
 | `pandas-market-calendars` | NYSE trading-day check |
 | `rich` | Coloured terminal logging |

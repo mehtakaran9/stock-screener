@@ -22,6 +22,8 @@ FastAPI service that scans S&P 500 stocks, streams results via Server-Sent Event
 | `EMAIL_SMTP_PORT` | No | `587` | SMTP port |
 | `EMAIL_USER` | Yes (email) | — | Sender address |
 | `EMAIL_PASSWORD` | Yes (email) | — | SMTP password / App Password |
+| `FULL_SCAN` | No | — | GitHub Actions only: `true` = run full scan; `false` = skip scan; empty = apply trading-day check |
+| `SEND_EMAIL` | No | `true` | GitHub Actions only: `false` = suppress email; anything else = send if results found |
 
 Recipients are read from `backend/recipients.txt` (one address per line, gitignored).
 

@@ -7,6 +7,7 @@ React SPA that connects to the FastAPI backend via Server-Sent Events and displa
 - **React 19** + **TypeScript** (strict mode)
 - **Vite 8** — dev server and bundler
 - **Lucide React** — icon set
+- **Vitest** + **Testing Library** — unit and component tests
 
 ## Project structure
 
@@ -48,4 +49,11 @@ npm run preview  # Serve the dist/ build locally
 
 ```bash
 npm run lint
+```
+
+## Testing
+
+```bash
+npm run test             # run all tests once
+npm run test:coverage    # run with coverage report (95% threshold enforced)
 ```
