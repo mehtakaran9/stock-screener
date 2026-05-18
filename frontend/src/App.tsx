@@ -21,13 +21,13 @@ function App() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
+  const scanStartTimeRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetchFilters();
-    startScan();
     return () => {
       eventSourceRef.current?.close();
       if (wakeTimerRef.current) clearTimeout(wakeTimerRef.current);
@@ -54,7 +54,8 @@ function App() {
     setProgress(null);
     setScanComplete(null);
     setScanWarning(null);
-    setStartTime(Date.now());
+    setStartTime(null);
+    scanStartTimeRef.current = null;
 
     setIsWaking(true);
     const controller = new AbortController();
@@ -85,6 +86,11 @@ function App() {
         if (data.status === 'warning') {
           setScanWarning(data.message);
         } else if (data.status === 'progress') {
+          if (scanStartTimeRef.current === null) {
+            const now = Date.now();
+            scanStartTimeRef.current = now;
+            setStartTime(now);
+          }
           setProgress({ total: data.total, current: data.current, ticker: data.ticker });
         } else if (data.status === 'result') {
           setStocks((prev) => {
@@ -119,9 +125,11 @@ function App() {
     if (elapsed === 0) return 'Calculating...';
     const rate = progress.current / elapsed;
     const remaining = (progress.total - progress.current) / rate;
+    // Round to nearest 5s so burst-driven micro-changes don't flicker the display
+    const rounded = Math.ceil(remaining / 5) * 5;
 
-    const mins = Math.floor(remaining / 60);
-    const secs = Math.floor(remaining % 60);
+    const mins = Math.floor(rounded / 60);
+    const secs = rounded % 60;
 
     return `${mins}m ${secs}s`;
   };

@@ -77,19 +77,46 @@ Every matched stock returns the following fields from `/api/scan`:
 ## Architecture
 
 ```mermaid
-flowchart TD
-    GHA["GitHub Actions (free)\nCron: 12 PM ET Mon-Fri · workflow_dispatch\nrun_scan.py → scanner.py → notifications.py"]
-    SMTP["Gmail / any SMTP"]
-    Vercel["Vercel (free)\nReact + Vite — frontend/"]
-    Render["Render.com (free)\nFastAPI + Uvicorn — backend/main.py"]
+flowchart LR
+    browser(["Browser"])
 
-    GHA -->|email via SMTP| SMTP
-    Render -->|SSE stream| Vercel
+    subgraph vercel ["Vercel · React + Vite"]
+        ui["EventSource · SSE consumer\nreal-time progress + results\nSwing level table"]
+    end
+
+    subgraph render ["Render · FastAPI + Uvicorn"]
+        api["GET /api/scan · GET /api/filters"]
+        scanner["scanner.py · asyncio\nparallel chunks · Semaphore(5) · Queue"]
+        cache[("scan_cache.json · 10-min TTL")]
+        api --> scanner
+        scanner <--> cache
+    end
+
+    subgraph gha ["GitHub Actions"]
+        keepalive["keepalive.yml\n11:50 AM ET · Mon–Fri"]
+        daily["daily-scan.yml\n12:00 PM ET · Mon–Fri\nrun_scan.py → scanner.py → notifications.py"]
+    end
+
+    yf[("yfinance\nOHLCV · market cap · last price")]
+    sp500[("S&P 500 CSV\ngithub.com/datasets · ~500 tickers")]
+    smtp["SMTP · Gmail"]
+    subs(["Subscribers"])
+
+    browser --> vercel
+    browser -->|GET /api/scan| render
+    render -->|SSE events| browser
+    keepalive -->|"GET / · wake"| render
+    scanner --> yf
+    scanner --> sp500
+    daily --> yf
+    daily --> sp500
+    daily -->|HTML email| smtp
+    smtp --> subs
 ```
 
-- **GitHub Actions** owns the scheduled scan and email. Two cron entries handle EDT/EST daylight-saving transitions; `is_nyse_trading_day()` guards against duplicate fires on transition weeks. Recipients are stored in the `EMAIL_LIST` Actions variable (one address per line) and written to `backend/recipients.txt` at runtime.
-- **Render.com** hosts the FastAPI backend on the free tier (512 MB RAM; sleeps after 15 min inactivity).
-- **Vercel** hosts the static React build. `VITE_API_URL` points to the Render service.
+- **GitHub Actions** owns the scheduled scan and email. `keepalive.yml` pings Render 10 minutes before the daily scan to avoid cold-start delays. `daily-scan.yml` runs two cron entries (EDT + EST) and guards against duplicate fires on DST transition weeks via `is_nyse_trading_day()`. Recipients are stored in the `EMAIL_LIST` Actions variable and written to `backend/recipients.txt` at runtime.
+- **Render** hosts the FastAPI backend (512 MB RAM; sleeps after 15 min of inactivity). The keepalive ping ensures it is warm when the daily scan runs.
+- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. `VITE_API_URL` wires up the Render service URL.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
 
 ---

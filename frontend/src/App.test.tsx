@@ -59,9 +59,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// Helper — wait for EventSource to be created after mount
+// Helper — render, click Start Scan, wait for EventSource
 async function renderAndWaitForES() {
   render(<App />)
+  await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
   await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
   return MockEventSource.instances[0]
 }
@@ -75,8 +76,7 @@ describe('App — initial render', () => {
 
   it('renders scan control buttons', () => {
     render(<App />)
-    // Auto-start ping is in progress, so button shows "Waking up…" before "Scanning…"
-    expect(screen.getByRole('button', { name: /waking up|scanning/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start scan/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
   })
 
@@ -85,7 +85,14 @@ describe('App — initial render', () => {
     await waitFor(() => expect(screen.getByText('Day Change > 3%')).toBeInTheDocument())
   })
 
-  it('auto-starts scan on mount and creates an EventSource', async () => {
+  it('does not auto-start scan on mount — Start Scan button is enabled', () => {
+    render(<App />)
+    const btn = screen.getByRole('button', { name: /start scan/i })
+    expect(btn).not.toBeDisabled()
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
+  it('creates an EventSource when Start Scan is clicked', async () => {
     await renderAndWaitForES()
     expect(MockEventSource.instances).toHaveLength(1)
   })
@@ -165,6 +172,7 @@ describe('App — error handling', () => {
   it('stops scanning immediately when ping fetch throws', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
     render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /start scan/i }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /start scan/i })).not.toBeDisabled()
     )
@@ -177,6 +185,7 @@ describe('App — error handling', () => {
       return Promise.resolve({ ok: true })
     }))
     render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /start scan/i }))
     await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
     expect(console.error).toHaveBeenCalled()
   })
