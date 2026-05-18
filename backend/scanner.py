@@ -380,7 +380,7 @@ async def screen_stocks(tickers: List[str]):
                                 yf.download, chunk,
                                 period=period, group_by='ticker', progress=False, threads=False
                             ),
-                            timeout=18000.0,
+                            timeout=180.0,
                         )
                     # Semaphore released — next chunk can start downloading.
                     if data is None or data.empty:

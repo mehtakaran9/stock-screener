@@ -11,6 +11,11 @@ class MockEventSource {
 
   constructor(_url: string) {
     MockEventSource.instances.push(this)
+    // Simulate real EventSource: closing clears handlers so late events are dropped
+    this.close.mockImplementation(() => {
+      this.onmessage = null
+      this.onerror = null
+    })
   }
 
   emit(data: object) {
@@ -228,6 +233,34 @@ describe('App — Reset button', () => {
     render(<App />)
     await userEvent.click(screen.getByRole('button', { name: /reset/i }))
     expect(reload).toHaveBeenCalledOnce()
+  })
+})
+
+describe('App — SSE ordering and post-error re-scan', () => {
+  it('ignores result events that arrive after complete', async () => {
+    const es = await renderAndWaitForES()
+    act(() => {
+      es.emit({ status: 'complete', total: 100 })
+      es.emit(stockPayload('LATE'))
+    })
+    expect(screen.queryByRole('link', { name: 'LATE' })).not.toBeInTheDocument()
+  })
+
+  it('can start a new scan after an SSE error', async () => {
+    const es = await renderAndWaitForES()
+    act(() => { es.emitError() })
+    await waitFor(() => expect(screen.getByRole('button', { name: /start scan/i })).not.toBeDisabled())
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
+    expect(MockEventSource.instances).toHaveLength(2)
+  })
+
+  it('shows wake-timeout warning when backend ping fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(
+      Object.assign(new Error('AbortError'), { name: 'AbortError' })
+    ))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /start scan/i }))
+    await waitFor(() => expect(screen.getByText(/Backend is waking up/)).toBeInTheDocument())
   })
 })
 

@@ -45,8 +45,8 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
   };
 
   const sorted = [...stocks].sort((a, b) => {
-    const av = a[sortKey];
-    const bv = b[sortKey];
+    const av = a[sortKey] ?? 0;
+    const bv = b[sortKey] ?? 0;
     return sortDir === 'asc' ? av - bv : bv - av;
   });
 
@@ -133,7 +133,7 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
                         ? <ChevronDown size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
                         : <ChevronRight size={13} style={{ flexShrink: 0, opacity: 0.4 }} />}
                       <a
-                        href={`https://www.google.com/finance/quote/${stock.ticker}:${stock.exchange}`}
+                        href={`https://www.google.com/finance/quote/${encodeURIComponent(stock.ticker)}:${encodeURIComponent(stock.exchange)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={e => e.stopPropagation()}

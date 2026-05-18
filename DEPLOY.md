@@ -9,10 +9,15 @@ Go to **Settings → Secrets and variables → Actions → Repository secrets** 
 | Secret | Purpose |
 |--------|---------|
 | `EMAIL_SMTP_HOST` | SMTP server hostname (e.g. `smtp.gmail.com`) |
-| `EMAIL_SMTP_PORT` | SMTP port (e.g. `587`) |
 | `EMAIL_USER` | Sender email address |
 | `EMAIL_PASSWORD` | 16-char Gmail App Password ¹ |
 | `GH_PAT` | Personal Access Token with `repo` scope ² |
+
+### Optional secret
+
+| Secret | Default | Purpose |
+|--------|---------|---------|
+| `EMAIL_SMTP_PORT` | `587` | SMTP port — omit to use the standard submission port |
 
 ¹ Gmail requires an **App Password** (not your account password) when 2-Step Verification is enabled.  
 Create one at **myaccount.google.com → Security → App Passwords**.

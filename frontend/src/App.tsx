@@ -167,9 +167,16 @@ function App() {
             <h2>Market Scan Results</h2>
             {progress && (
               <div className="progress-bar-container">
-                <div className="progress-bar-wrapper">
-                  <div 
-                    className="progress-bar" 
+                <div
+                  className="progress-bar-wrapper"
+                  role="progressbar"
+                  aria-valuenow={progress.current}
+                  aria-valuemin={0}
+                  aria-valuemax={progress.total}
+                  aria-label="Scan progress"
+                >
+                  <div
+                    className="progress-bar"
                     style={{ width: `${(progress.current / progress.total) * 100}%` }}
                   />
                 </div>

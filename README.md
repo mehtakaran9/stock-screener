@@ -125,7 +125,7 @@ flowchart LR
 
 ### Prerequisites
 - Python 3.11+
-- Node.js 18+
+- Node.js 20+
 
 ### Backend
 

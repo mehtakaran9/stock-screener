@@ -17,6 +17,11 @@ echo "Ensuring port 8000 is clear..."
 lsof -t -i:8000 | xargs kill -9 2>/dev/null
 
 echo "Starting Stock Screener Backend (FastAPI)..."
+if [ ! -d venv ]; then
+  echo "Creating Python virtual environment..."
+  python3 -m venv venv
+  pip install -r backend/requirements.txt
+fi
 source venv/bin/activate
 export PYTHONPATH=$PYTHONPATH:.
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
