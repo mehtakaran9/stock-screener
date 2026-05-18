@@ -22,12 +22,12 @@ def test_root_head():
     assert resp.status_code == 200
 
 
-def test_get_filters_returns_15_items():
+def test_get_filters_returns_14_items():
     resp = client.get("/api/filters")
     assert resp.status_code == 200
     data = resp.json()
     assert "filters" in data
-    assert len(data["filters"]) == 15
+    assert len(data["filters"]) == 14
 
 
 # ── Cache helpers ─────────────────────────────────────────────────────────────

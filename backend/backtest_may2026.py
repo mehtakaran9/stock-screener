@@ -293,7 +293,6 @@ def main() -> None:
           f"Day change ≥ {int(CONFIG['MIN_DAY_CHANGE']*100)}% | "
           f"ATR candle ≥ {CONFIG['ATR_CANDLE_MULT']}× | "
           f"Close pos ≥ {CONFIG['MIN_CLOSE_POSITION']} | "
-          f"EMA8 trend {CONFIG['TREND_CONFIRM_DAYS']}d | "
           f"BB breakout + widening | MA stack EMA20>EMA50>EMA200")
 
     if args.all_days:

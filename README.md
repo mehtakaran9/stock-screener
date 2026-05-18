@@ -24,7 +24,7 @@ A real-time technical stock screener that identifies momentum breakout setups ac
 
 ## What it does
 
-On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies fifteen filters in sequence:
+On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies fourteen filters in sequence:
 
 | Filter | Threshold | Rationale |
 |--------|-----------|-----------|
@@ -34,8 +34,7 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | Volume | > 500 K shares | Confirms institutional participation |
 | RVOL | ≥ 2.5× | Volume spike vs. 20-day average — strong conviction |
 | SMA 200 | Price > 75% of SMA200 | Stock is in a long-term uptrend |
-| EMA 8 (position) | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
-| EMA 8 (trend) | Last 3 closes above EMA8 | Multi-day uptrend, not a single-day spike |
+| EMA 8 | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
 | RSI (14) | 55 – 70 | Momentum confirmed without being overbought |
 | MACD histogram | > 0 | Bullish crossover active (MACD line above signal) |
 | MA stack + slope | EMA20 > EMA50 > EMA200, all rising | Full trend alignment across timeframes |
@@ -44,7 +43,7 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | Close position | Close in top 35% of day's range | Rejects gap-and-fades and shooting stars |
 | Bollinger Band | Price > BB upper (20, 2) + bands widening | Confirmed volatility expansion breakout |
 
-Tickers that pass all fifteen filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
+Tickers that pass all fourteen filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
 
 Each result also includes computed swing trade levels:
 

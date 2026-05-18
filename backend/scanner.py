@@ -50,8 +50,7 @@ CONFIG = {
     "MIN_RSI":            55,
     "MAX_RSI":            70,
     "ATR_CANDLE_MULT":    1.5,
-    "MIN_CLOSE_POSITION": 0.65,   # close must be in top 35% of day's range
-    "TREND_CONFIRM_DAYS": 3,      # last N closes must all be above EMA8
+    "MIN_CLOSE_POSITION": 0.65,  # close must be in top 35% of day's range
 }
 
 _RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
@@ -150,7 +149,6 @@ def get_active_filters():
         f"RVOL ≥ {CONFIG['MIN_RVOL']}×",
         f"Price > {int(CONFIG['SMA200_RATIO']*100)}% of SMA200",
         f"Price > {int(CONFIG['EMA8_RATIO']*100)}% of EMA8",
-        f"Price above EMA8 for last {CONFIG['TREND_CONFIRM_DAYS']} days",
         f"RSI(14) {CONFIG['MIN_RSI']}–{CONFIG['MAX_RSI']}",
         "MACD Hist > 0",
         "Price > EMA20 > EMA50 > EMA200 (all sloping up)",
@@ -244,13 +242,6 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
         if ema8_series is None or ema8_series.empty:
             return None
         curr_ema8 = float(ema8_series.iloc[-1])
-
-        # Multi-day EMA8 trend confirmation: last N closes must all be above EMA8
-        _TREND = CONFIG["TREND_CONFIRM_DAYS"]
-        if len(ema8_series) >= _TREND and len(df) >= _TREND:
-            if not (df['Close'].iloc[-_TREND:].values > ema8_series.iloc[-_TREND:].values).all():
-                logger.debug(f"{ticker} failed multi-day EMA8 ({_TREND}-day trend)")
-                return None
 
         if price < curr_ema8 * CONFIG["EMA8_RATIO"]:
             logger.debug(f"{ticker} below {CONFIG['EMA8_RATIO']*100}% 8EMA range: Price={price}, 8EMA={curr_ema8}")

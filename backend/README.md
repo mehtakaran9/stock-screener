@@ -7,7 +7,7 @@ FastAPI service that scans S&P 500 stocks, streams results via Server-Sent Event
 | File | Role |
 |------|------|
 | `main.py` | FastAPI app — `/api/scan` SSE endpoint, `/api/filters`, cache |
-| `scanner.py` | Bulk yfinance downloads, fifteen-filter screening logic, async generator |
+| `scanner.py` | Bulk yfinance downloads, fourteen-filter screening logic, async generator |
 | `notifications.py` | HTML email builder and SMTP sender |
 | `run_scan.py` | GitHub Actions entrypoint — trading-day check, scan, email |
 | `utils.py` | Design tokens (colours, formatters) shared between email and web UI |

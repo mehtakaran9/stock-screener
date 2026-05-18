@@ -54,9 +54,7 @@ def multiindex(df, ticker="AAPL"):
 def mock_ema_side_effect(series, length=None, **kw):
     # EMA20 > EMA50 > EMA200 satisfies MA stacking; each series gently rises by 0.01
     # per bar so the slope check (iloc[-1] > iloc[-6]) always passes.
-    # EMA8 base is 143 so that make_passing_df's last 3 closes (≈154.8, 152, 160)
-    # all clear EMA8 (≈145.97–145.99), satisfying the TREND_CONFIRM_DAYS=3 filter.
-    base = {8: 143.0, 20: 148.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
+    base = {8: 155.0, 20: 148.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
     n = len(series)
     return pd.Series([base + i * 0.01 for i in range(n)], index=series.index)
 
@@ -282,9 +280,9 @@ def test_get_full_market_tickers_replaces_dots_with_dashes(mock_get):
 
 # ── get_active_filters ────────────────────────────────────────────────────────
 
-def test_get_active_filters_returns_15():
+def test_get_active_filters_returns_14():
     filters = get_active_filters()
-    assert len(filters) == 15
+    assert len(filters) == 14
 
 
 def test_get_active_filters_contains_day_change():
@@ -688,8 +686,8 @@ def test_filter_ticker_ma_stacking_filter(mock_atr, mock_bb, mock_ema, mock_macd
     mock_macd.return_value = mock_macd_df(hist=0.5)
     mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
     def bad_stack(series, length=None, **kw):
-        # EMA8=143 keeps last-3-close trend check passing; EMA20 < EMA50 breaks the stack
-        val = {8: 143.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
+        # EMA20 < EMA50 breaks the MA stack; EMA8=155 keeps price > 80% of EMA8
+        val = {8: 155.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
         return pd.Series([val + i * 0.01 for i in range(len(series))], index=series.index)
     mock_ema.side_effect = bad_stack
     result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
@@ -747,16 +745,3 @@ def test_filter_ticker_close_position_filter(mock_atr, mock_bb, mock_ema, mock_m
     assert result is None
 
 
-@patch("backend.scanner.ta.rsi", return_value=pd.Series([60.0] * 300))
-@patch("backend.scanner.ta.macd")
-@patch("backend.scanner.ta.ema")
-@patch("backend.scanner.ta.bbands")
-@patch("backend.scanner.ta.atr", return_value=pd.Series([3.0] * 300))
-def test_filter_ticker_multiday_ema8_filter(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi):
-    """Ticker is rejected when not all of last 3 closes are above EMA8."""
-    mock_macd.return_value = mock_macd_df(hist=0.5)
-    mock_bb.return_value = mock_bb_df(upper=157.0, middle=152.0, lower=147.0)
-    # EMA8 = 200 for all bars → every Close (≤ 160) < 200 → multi-day check fails
-    mock_ema.side_effect = lambda s, length=None, **kw: pd.Series([200.0] * len(s), index=s.index)
-    result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
-    assert result is None
