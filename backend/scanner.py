@@ -70,8 +70,13 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, dict]:
             try:
                 fi = yf.Ticker(ticker).fast_info
                 mc = fi.market_cap
+                lp = fi.last_price
                 exc = _EXCHANGE_MAP.get(getattr(fi, 'exchange', ''), 'NASDAQ')
-                result[ticker] = {'market_cap': float(mc) if mc is not None else 0.0, 'exchange': exc}
+                result[ticker] = {
+                    'market_cap': float(mc) if mc is not None else 0.0,
+                    'exchange': exc,
+                    'last_price': float(lp) if lp is not None else None,
+                }
                 break
             except Exception as e:
                 if _is_rate_limit(e) and attempt < 3:
@@ -81,10 +86,10 @@ def _fetch_market_caps_bulk(chunk: list[str]) -> dict[str, dict]:
                 else:
                     if _is_rate_limit(e):
                         logger.warning(f"Rate limit persists for {ticker} after retries; assuming large-cap NASDAQ")
-                        result[ticker] = {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ'}
+                        result[ticker] = {'market_cap': float(CONFIG["MIN_MARKET_CAP"] * 10), 'exchange': 'NASDAQ', 'last_price': None}
                     else:
                         logger.debug(f"Could not fetch market cap for {ticker}: {e}")
-                        result[ticker] = {'market_cap': 0.0, 'exchange': 'NASDAQ'}
+                        result[ticker] = {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None}
                     break
     return result
 
@@ -194,15 +199,18 @@ async def screen_stocks(tickers: List[str]):
                             logger.debug(f"{ticker} data too short: {len(df)}")
                             continue
 
-                        info = market_caps.get(ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ'})
+                        info = market_caps.get(ticker, {'market_cap': 0.0, 'exchange': 'NASDAQ', 'last_price': None})
                         market_cap = info['market_cap']
                         exchange = info['exchange']
 
-                        raw_price = df['Close'].iloc[-1]
+                        raw_price = info.get('last_price')
+                        if raw_price is None or pd.isna(raw_price):
+                            logger.debug(f"{ticker} skipped — no live price available from fast_info")
+                            continue
                         raw_prev = df['Close'].iloc[-2]
                         raw_vol = df['Volume'].iloc[-1]
-                        if pd.isna(raw_price) or pd.isna(raw_prev) or pd.isna(raw_vol):
-                            logger.debug(f"{ticker} has NaN in price/volume data")
+                        if pd.isna(raw_prev) or pd.isna(raw_vol):
+                            logger.debug(f"{ticker} has NaN in prev_close/volume data")
                             continue
                         price = float(raw_price)
                         prev_close = float(raw_prev)

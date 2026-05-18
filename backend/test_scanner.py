@@ -93,23 +93,27 @@ def test_fetch_market_caps_success():
     mock_ticker = MagicMock()
     mock_ticker.fast_info.market_cap = 2_000_000_000.0
     mock_ticker.fast_info.exchange = "NMS"
+    mock_ticker.fast_info.last_price = 150.0
 
     with patch("backend.scanner.yf.Ticker", return_value=mock_ticker):
         result = _fetch_market_caps_bulk(["AAPL"])
 
     assert result["AAPL"]["market_cap"] == 2_000_000_000.0
     assert result["AAPL"]["exchange"] == "NASDAQ"
+    assert result["AAPL"]["last_price"] == 150.0
 
 
 def test_fetch_market_caps_none_market_cap():
     mock_ticker = MagicMock()
     mock_ticker.fast_info.market_cap = None
     mock_ticker.fast_info.exchange = "NYQ"
+    mock_ticker.fast_info.last_price = 80.0
 
     with patch("backend.scanner.yf.Ticker", return_value=mock_ticker):
         result = _fetch_market_caps_bulk(["XOM"])
 
     assert result["XOM"]["market_cap"] == 0.0
+    assert result["XOM"]["last_price"] == 80.0
 
 
 def test_fetch_market_caps_rate_limit_exhausted_uses_fallback():
@@ -121,6 +125,7 @@ def test_fetch_market_caps_rate_limit_exhausted_uses_fallback():
             result = _fetch_market_caps_bulk(["AAPL"])
 
     assert result["AAPL"]["market_cap"] > 0  # fallback large-cap
+    assert result["AAPL"]["last_price"] is None
 
 
 def test_fetch_market_caps_non_rate_limit_error_returns_zero():
@@ -128,6 +133,7 @@ def test_fetch_market_caps_non_rate_limit_error_returns_zero():
         result = _fetch_market_caps_bulk(["AAPL"])
 
     assert result["AAPL"]["market_cap"] == 0.0
+    assert result["AAPL"]["last_price"] is None
 
 
 def test_fetch_market_caps_rate_limit_then_success():
@@ -138,6 +144,7 @@ def test_fetch_market_caps_rate_limit_then_success():
     mock_ticker_ok = MagicMock()
     mock_ticker_ok.fast_info.market_cap = 1_500_000_000.0
     mock_ticker_ok.fast_info.exchange = "NMS"
+    mock_ticker_ok.fast_info.last_price = 150.0
 
     def ticker_factory(sym):
         call_count["n"] += 1
@@ -150,6 +157,7 @@ def test_fetch_market_caps_rate_limit_then_success():
             result = _fetch_market_caps_bulk(["AAPL"])
 
     assert result["AAPL"]["market_cap"] == 1_500_000_000.0
+    assert result["AAPL"]["last_price"] == 150.0
 
 
 # ── get_full_market_tickers ───────────────────────────────────────────────────
@@ -202,7 +210,7 @@ def test_get_active_filters_contains_day_change():
 def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
     df = multiindex(make_passing_df(final_price=160.0, prev_price=152.0))
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 500_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 500_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -212,7 +220,7 @@ def test_screen_stocks_fails_market_cap(mock_caps, mock_dl):
 def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
     df = multiindex(make_passing_df(final_price=101.0, prev_price=100.0))  # 1% change
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 101.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -222,7 +230,7 @@ def test_screen_stocks_fails_day_change(mock_caps, mock_dl):
 def test_screen_stocks_fails_volume(mock_caps, mock_dl):
     df = multiindex(make_passing_df(volume=100_000))  # below 500K
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -242,7 +250,7 @@ def test_screen_stocks_fails_sma200(mock_caps, mock_dl):
     }, index=dates)
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 10.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -253,7 +261,7 @@ def test_screen_stocks_fails_sma200(mock_caps, mock_dl):
 def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     # EMA8 = 250 → 80% of 250 = 200 > price 160 → fails
     mock_ema.side_effect = lambda s, length=None, **kw: pd.Series([250.0] * len(s), index=s.index)
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
@@ -267,7 +275,7 @@ def test_screen_stocks_fails_ema8(mock_ema, mock_caps, mock_dl):
 def test_screen_stocks_skips_ticker_not_in_multiindex(mock_caps, mock_dl):
     df = multiindex(make_passing_df(), ticker="MSFT")  # only MSFT in data
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -278,7 +286,7 @@ def test_screen_stocks_skips_too_short_data(mock_caps, mock_dl):
     df = make_passing_df(days=100)  # only 100 rows
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -292,7 +300,7 @@ def test_screen_stocks_skips_nan_price(mock_caps, mock_dl):
     df["Close"] = prices
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": None}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -306,7 +314,7 @@ def test_screen_stocks_skips_zero_prev_close(mock_caps, mock_dl):
     df["Close"] = prices
     df = multiindex(df)
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
 
@@ -318,7 +326,7 @@ def test_screen_stocks_non_multiindex_data(mock_ema, mock_caps, mock_dl):
     """Single-ticker download may return a plain (non-MultiIndex) DataFrame."""
     df = make_passing_df(final_price=101.0, prev_price=100.0)  # 1% → fails change
     mock_dl.return_value = df  # no MultiIndex
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 101.0}}
     mock_ema.side_effect = mock_ema_side_effect
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
@@ -345,7 +353,7 @@ def test_screen_stocks_empty_download_raises_and_retries(mock_caps, mock_dl):
 def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([45.0] * 300)  # RSI < 50
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
@@ -359,7 +367,7 @@ def test_screen_stocks_fails_rsi_low(mock_rsi, mock_ema, mock_caps, mock_dl):
 def test_screen_stocks_fails_rsi_high(mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([75.0] * 300)  # RSI > 70
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
@@ -374,7 +382,7 @@ def test_screen_stocks_fails_rsi_high(mock_rsi, mock_ema, mock_caps, mock_dl):
 def test_screen_stocks_fails_macd_hist(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
     mock_macd.return_value = mock_macd_df(hist=-0.5)  # hist <= 0
@@ -390,7 +398,7 @@ def test_screen_stocks_fails_macd_hist(mock_macd, mock_rsi, mock_ema, mock_caps,
 def test_screen_stocks_macd_none_uses_zero(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
     mock_macd.return_value = None  # None → falls back to hist=0.0 → fails filter
@@ -406,7 +414,7 @@ def test_screen_stocks_macd_none_uses_zero(mock_macd, mock_rsi, mock_ema, mock_c
 def test_screen_stocks_fails_ema50(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
 
     def ema_se(series, length=None, **kw):
         val = {8: 155.0, 50: 200.0, 200: 110.0}.get(length, 140.0)  # EMA50=200 > price 160
@@ -427,7 +435,7 @@ def test_screen_stocks_fails_ema50(mock_macd, mock_rsi, mock_ema, mock_caps, moc
 def test_screen_stocks_fails_ema200(mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
 
     def ema_se(series, length=None, **kw):
         val = {8: 155.0, 50: 130.0, 200: 200.0}.get(length, 140.0)  # EMA200=200 > price 160
@@ -449,7 +457,7 @@ def test_screen_stocks_fails_ema200(mock_macd, mock_rsi, mock_ema, mock_caps, mo
 def test_screen_stocks_fails_bb_upper(mock_bb, mock_macd, mock_rsi, mock_ema, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
     mock_macd.return_value = mock_macd_df(hist=0.5)
@@ -465,7 +473,7 @@ def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
     """When bbands returns None, fallback values are computed from price (price < BB upper)."""
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
     mock_bb.return_value = None
 
     with patch("backend.scanner.ta.ema", side_effect=mock_ema_side_effect):
@@ -490,7 +498,7 @@ def test_screen_stocks_bb_none_uses_fallback(mock_bb, mock_caps, mock_dl):
 def test_screen_stocks_success(mock_atr, mock_bb, mock_ema, mock_macd, mock_rsi, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ"}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 160.0}}
 
     mock_ema.side_effect = mock_ema_side_effect
     mock_rsi.return_value = pd.Series([60.0] * 300)
