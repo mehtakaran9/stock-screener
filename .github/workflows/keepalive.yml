@@ -2,8 +2,8 @@ name: Render Keepalive
 
 on:
   schedule:
-    - cron: '50 15 * * 1-5'  # 11:50 AM EDT (Mar–Nov, UTC-4)
-    - cron: '50 16 * * 1-5'  # 11:50 AM EST (Nov–Mar, UTC-5)
+    - cron: '50 14 * * 1-5'  # 10:50 AM EDT (Mar–Nov, UTC-4)
+    - cron: '50 15 * * 1-5'  # 10:50 AM EST (Nov–Mar, UTC-5)
   workflow_dispatch:           # manual trigger for testing
 
 concurrency:
