@@ -25,18 +25,19 @@ def run_screen(tickers):
     return asyncio.run(_collect())
 
 
-def make_passing_df(days=300, final_price=150.0, prev_price=160.0, volume=2_000_000):
-    """Recovery setup: big red day, high panic volume.
+def make_passing_df(days=300, final_price=130.0, prev_price=145.0, volume=2_000_000):
+    """Recovery setup: strong uptrend (100→200) then panic crash.
 
     Background vol = 300K, last bar = volume (default 2M).
-    Rolling 20-bar avg ≈ (19×300K + 2M)/20 = 385K → RVOL ≈ 5.2× > 3.5 ✓
-    Day change = (150 − 160)/160 = −6.25% < −5% ✓
-    Prices 100→155 then drop to 150; SMA200 ≈ 127 → 150 > 0.75×127 = 95 ✓
-    EMA20 > EMA50 > EMA200 holds naturally on rising base series ✓
+    RVOL ≈ (19×300K + 2M)/20 = 385K → 2M/385K ≈ 5.2× > 3.5 ✓
+    Day change = (130 − 145)/145 = −10.3% < −5% ✓
+    SMA200 ≈ mean(100..200) ≈ 166; 130 > 0.75×166 = 124 ✓
+    SMA50 ≈ 189 (last 50 bars of 100→200 trend); 130/189 ≈ 0.69 < 0.90 ✓ (NEW)
+    EMA20 > EMA50 > EMA200 holds on rising 100→200 base; mocked in full-pass tests.
     RSI must be mocked to < 30 for full-pass tests.
     """
     dates = pd.date_range(end="2024-01-01", periods=days)
-    prices = np.linspace(100.0, 155.0, days).copy()
+    prices = np.linspace(100.0, 200.0, days).copy()
     prices[-1] = final_price
     prices[-2] = prev_price
     BACKGROUND_VOL = 300_000
@@ -258,9 +259,9 @@ def test_get_full_market_tickers_replaces_dots_with_dashes(mock_get):
 
 # ── get_active_filters ────────────────────────────────────────────────────────
 
-def test_get_active_filters_returns_8():
+def test_get_active_filters_returns_10():
     filters = get_active_filters()
-    assert len(filters) == 8
+    assert len(filters) == 10
 
 
 def test_get_active_filters_contains_day_change():
@@ -368,6 +369,7 @@ def test_screen_stocks_fails_ema_stack(mock_ema, mock_rsi, mock_caps, mock_dl):
         val = {8: 155.0, 20: 120.0, 50: 130.0, 200: 110.0}.get(length, 140.0)
         return pd.Series([val + i * 0.01 for i in range(len(series))], index=series.index)
 
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 130.0}}
     mock_ema.side_effect = broken_stack
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
@@ -456,7 +458,7 @@ def test_screen_stocks_empty_download_raises_and_retries(mock_caps, mock_dl):
 def test_screen_stocks_success(mock_ema, mock_rsi, mock_caps, mock_dl):
     df = multiindex(make_passing_df())
     mock_dl.return_value = df
-    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 130.0}}
 
     mock_rsi.return_value = pd.Series([22.0] * 300)  # extreme oversold < 30 ✓
     mock_ema.side_effect = mock_ema_side_effect       # EMA20 > EMA50 > EMA200 ✓
@@ -478,7 +480,7 @@ def test_screen_stocks_success(mock_ema, mock_rsi, mock_caps, mock_dl):
 
 # ── _filter_ticker — direct filter tests ─────────────────────────────────────
 
-def _make_mc(price=150.0, last_volume=None):
+def _make_mc(price=130.0, last_volume=None):
     return {'AAPL': {'market_cap': 3e12, 'exchange': 'NASDAQ', 'last_price': price, 'last_volume': last_volume}}
 
 
@@ -514,3 +516,32 @@ def test_filter_ticker_ma_stacking_filter(mock_ema, mock_rsi):
     mock_ema.side_effect = bad_stack
     result = _filter_ticker('AAPL', make_passing_df(), _make_mc())
     assert result is None
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+@patch("backend.scanner.ta.ema")
+def test_screen_stocks_fails_sma50(mock_ema, mock_rsi, mock_caps, mock_dl):
+    """Price too close to SMA50 (price/SMA50 ≥ 0.90) — not a deep enough discount."""
+    days = 300
+    dates = pd.date_range(end="2024-01-01", periods=days)
+    # Flat prices at 150 so SMA50 ≈ 150; inject crash bar: prev=160, last=150
+    prices = np.full(days, 150.0)
+    prices[-2] = 160.0
+    prices[-1] = 150.0  # not used by _filter_ticker — overridden by fast_info last_price
+    BACKGROUND_VOL = 300_000
+    vols = np.full(days, BACKGROUND_VOL, dtype=float)
+    vols[-1] = 2_000_000.0  # RVOL ≈ 5.2× ✓
+    df = pd.DataFrame({
+        "Open": prices * 1.01, "High": prices * 1.02,
+        "Low":  prices * 0.97, "Close": prices, "Volume": vols,
+    }, index=dates)
+    df = multiindex(df)
+    mock_dl.return_value = df
+    # last_price=150, prev=160 → day_change=−6.25% ✓; SMA50≈150 → 150/150=1.0 ≥ 0.90 → FAILS
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ", "last_price": 150.0}}
+    mock_rsi.return_value = pd.Series([22.0] * days)
+    mock_ema.side_effect = mock_ema_side_effect
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []

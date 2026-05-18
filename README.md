@@ -20,7 +20,7 @@
 
 A real-time technical stock screener that identifies oversold recovery setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
-**Strategy: oversold mean-reversion.** The screener buys panic selloffs in large-cap stocks that are still in structural uptrends. Calibrated from a 5-year reverse backtest (666K ticker-days): **68% 3-month win rate, +6.7% average return** — the empirically best achievable accuracy for S&P 500 large caps using technical filters.
+**Strategy: oversold mean-reversion.** The screener buys panic selloffs in large-cap stocks that are still in structural uptrends. Calibrated from a 5-year reverse backtest (666K ticker-days) with second-layer filter sweep: **67% 3-month win rate, +7.7% average return** across ~26 signals/year.
 
 ---
 
@@ -38,6 +38,8 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | RSI (14) | < 30 | Extreme oversold / capitulation |
 | SMA 200 | Price > 75% of SMA200 | Structural uptrend still intact — not in freefall |
 | EMA stack | EMA20 > EMA50 > EMA200 | Macro trend aligned across all timeframes |
+| SMA 50 | Price ≤ 90% of SMA50 | Deep discount below 50-day trend = more recovery fuel |
+| Sector | Excludes Health Care, Communication Services, Utilities | Empirically lower 3-month accuracy on panic-selloff setups |
 
 Tickers that pass all eight filters are surfaced in the UI as potential recovery trade candidates and emailed at 12 PM ET on NYSE trading days. Recommended hold: **~63 trading days (3 months)**.
 

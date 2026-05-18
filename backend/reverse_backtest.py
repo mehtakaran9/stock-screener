@@ -76,6 +76,7 @@ def _compute_signals(df: pd.DataFrame) -> pd.DataFrame | None:
     high   = df['High'].astype(float)
     low    = df['Low'].astype(float)
     volume = df['Volume'].astype(float)
+    open_  = df['Open'].astype(float)
 
     # ── Basic daily stats ────────────────────────────────────────────────
     day_chg  = close.pct_change() * 100
@@ -136,19 +137,33 @@ def _compute_signals(df: pd.DataFrame) -> pd.DataFrame | None:
     if atr14 is not None:
         atr_candle = (high - low) / atr14.replace(0, np.nan)
 
+    # ── Gap, consecutive-down streak, SMA50 ratio ────────────────────────
+    gap_pct = (open_ - close.shift(1)) / close.shift(1).replace(0, np.nan) * 100
+
+    is_down     = (close.pct_change() < 0).astype(int)
+    streak_grp  = (is_down != is_down.shift()).cumsum()
+    streak_run  = is_down.groupby(streak_grp).cumsum()
+    consec_down = streak_run.shift(1).fillna(0)
+
+    sma50_vals     = close.rolling(50).mean()
+    price_vs_sma50 = close / sma50_vals.replace(0, np.nan)
+
     out = pd.DataFrame({
-        'close':         close,
-        'day_chg':       day_chg,
-        'rvol':          rvol,
-        'rsi':           rsi_s,
-        'macd_hist':     macd_hist,
-        'ema_stack':     ema_stack,
-        'price_vs_ema8': price_vs_ema8,
-        'sma200_ratio':  sma200_ratio,
-        'bb_pos':        bb_pos,
-        'above_bbu':     above_bbu,
-        'close_pos':     close_pos,
-        'atr_candle':    atr_candle,
+        'close':          close,
+        'day_chg':        day_chg,
+        'rvol':           rvol,
+        'rsi':            rsi_s,
+        'macd_hist':      macd_hist,
+        'ema_stack':      ema_stack,
+        'price_vs_ema8':  price_vs_ema8,
+        'sma200_ratio':   sma200_ratio,
+        'bb_pos':         bb_pos,
+        'above_bbu':      above_bbu,
+        'close_pos':      close_pos,
+        'atr_candle':     atr_candle,
+        'gap_pct':        gap_pct,
+        'consec_down':    consec_down,
+        'price_vs_sma50': price_vs_sma50,
     }, index=df.index)
 
     return out.dropna(subset=['rsi', 'ema_stack'])
@@ -527,19 +542,26 @@ def _run_validate_recovery(
                     continue
                 row = signals.loc[dt]
                 rows.append({
-                    'ticker':       ticker,
-                    'date':         dt,
-                    'sector':       sector,
-                    'rsi':          float(row['rsi'])          if pd.notna(row.get('rsi'))          else np.nan,
-                    'rvol':         float(row['rvol'])          if pd.notna(row.get('rvol'))          else np.nan,
-                    'day_chg':      float(row['day_chg'])       if pd.notna(row.get('day_chg'))       else np.nan,
-                    'sma200_ratio': float(row['sma200_ratio'])  if pd.notna(row.get('sma200_ratio'))  else np.nan,
-                    'bb_pos':       float(row['bb_pos'])        if pd.notna(row.get('bb_pos'))        else np.nan,
-                    'ema_stack':    float(row['ema_stack'])     if pd.notna(row.get('ema_stack'))     else np.nan,
-                    'macd_hist':    float(row['macd_hist'])     if pd.notna(row.get('macd_hist'))     else np.nan,
-                    'fwd_10':       float(fwd_10.loc[dt]),
-                    'fwd_21':       float(fwd_21.loc[dt]) if pd.notna(fwd_21.loc[dt]) else np.nan,
-                    'fwd_63':       float(fwd_63.loc[dt]) if pd.notna(fwd_63.loc[dt]) else np.nan,
+                    'ticker':         ticker,
+                    'date':           dt,
+                    'sector':         sector,
+                    'rsi':            float(row['rsi'])            if pd.notna(row.get('rsi'))            else np.nan,
+                    'rvol':           float(row['rvol'])            if pd.notna(row.get('rvol'))            else np.nan,
+                    'day_chg':        float(row['day_chg'])         if pd.notna(row.get('day_chg'))         else np.nan,
+                    'sma200_ratio':   float(row['sma200_ratio'])    if pd.notna(row.get('sma200_ratio'))    else np.nan,
+                    'bb_pos':         float(row['bb_pos'])          if pd.notna(row.get('bb_pos'))          else np.nan,
+                    'above_bbu':      float(row['above_bbu'])       if pd.notna(row.get('above_bbu'))       else np.nan,
+                    'ema_stack':      float(row['ema_stack'])       if pd.notna(row.get('ema_stack'))       else np.nan,
+                    'macd_hist':      float(row['macd_hist'])       if pd.notna(row.get('macd_hist'))       else np.nan,
+                    'close_pos':      float(row['close_pos'])       if pd.notna(row.get('close_pos'))       else np.nan,
+                    'atr_candle':     float(row['atr_candle'])      if pd.notna(row.get('atr_candle'))      else np.nan,
+                    'price_vs_ema8':  float(row['price_vs_ema8'])   if pd.notna(row.get('price_vs_ema8'))   else np.nan,
+                    'gap_pct':        float(row['gap_pct'])         if pd.notna(row.get('gap_pct'))         else np.nan,
+                    'consec_down':    float(row['consec_down'])     if pd.notna(row.get('consec_down'))     else np.nan,
+                    'price_vs_sma50': float(row['price_vs_sma50'])  if pd.notna(row.get('price_vs_sma50'))  else np.nan,
+                    'fwd_10':         float(fwd_10.loc[dt]),
+                    'fwd_21':         float(fwd_21.loc[dt]) if pd.notna(fwd_21.loc[dt]) else np.nan,
+                    'fwd_63':         float(fwd_63.loc[dt]) if pd.notna(fwd_63.loc[dt]) else np.nan,
                 })
         except Exception:
             pass
@@ -728,7 +750,369 @@ def _run_validate_recovery(
     print()
 
 
-# ─── 7. Momentum screener validation ─────────────────────────────────────────
+# ─── 7. SPY RSI market-regime helper ─────────────────────────────────────────
+
+def _load_spy_rsi(date_index: pd.DatetimeIndex) -> pd.Series:
+    """Download SPY and return RSI(14) reindexed to date_index. Returns NaN series on failure."""
+    try:
+        spy_raw = yf.download('SPY', start=DOWNLOAD_START, end=DOWNLOAD_END,
+                              progress=False, threads=False)
+        if isinstance(spy_raw.columns, pd.MultiIndex):
+            spy_close = spy_raw[('Close', 'SPY')].dropna()
+        else:
+            spy_close = spy_raw['Close'].dropna()
+        spy_rsi = ta.rsi(spy_close.astype(float), length=14)
+        return spy_rsi.reindex(date_index)
+    except Exception:
+        return pd.Series(np.nan, index=date_index)
+
+
+# ─── 8. Refine sweep — second-layer filters + sector exclusions ───────────────
+
+def _run_refine(
+    tickers: list[str],
+    raw: pd.DataFrame,
+    sector_map: dict[str, str],
+    scan_from: str = '2021-01-01',
+    base_rsi: float = 35.0,
+    base_day: float = -5.0,
+    base_rvol: float = 3.0,
+) -> None:
+    """
+    Sweep second-layer filters and sector exclusions on top of the recovery base signal.
+    Acceptance: N≥15 AND Δwin%≥+3pp (single filter); Δwin%≥+2pp (sector exclusion).
+    """
+    print(f"\n  Collecting ticker-day data for refine sweep (scan_from={scan_from}) …")
+    print(f"  Base: RSI<{base_rsi} | day<{base_day}% | RVOL>{base_rvol}× | SMA200>75% | EMA stack\n")
+
+    rows: list[dict] = []
+    total = len(tickers)
+
+    for i, ticker in enumerate(tickers, 1):
+        try:
+            if isinstance(raw.columns, pd.MultiIndex):
+                if ticker not in raw.columns.get_level_values(0):
+                    continue
+                df = raw[ticker].dropna(how='all')
+            else:
+                df = raw.dropna(how='all')
+
+            if len(df) < MIN_HISTORY + 63 + 5:
+                continue
+
+            signals = _compute_signals(df)
+            if signals is None or signals.empty:
+                continue
+
+            close  = df['Close'].astype(float)
+            fwd_10 = (close.shift(-10) / close - 1) * 100
+            fwd_63 = (close.shift(-63) / close - 1) * 100
+            sector = sector_map.get(ticker, 'Unknown')
+
+            for dt in signals.index:
+                if dt < pd.Timestamp(scan_from):
+                    continue
+                if dt not in fwd_10.index or pd.isna(fwd_10.loc[dt]):
+                    continue
+                row = signals.loc[dt]
+                rows.append({
+                    'ticker':         ticker,
+                    'date':           dt,
+                    'sector':         sector,
+                    'rsi':            float(row['rsi'])            if pd.notna(row.get('rsi'))            else np.nan,
+                    'rvol':           float(row['rvol'])            if pd.notna(row.get('rvol'))            else np.nan,
+                    'day_chg':        float(row['day_chg'])         if pd.notna(row.get('day_chg'))         else np.nan,
+                    'sma200_ratio':   float(row['sma200_ratio'])    if pd.notna(row.get('sma200_ratio'))    else np.nan,
+                    'bb_pos':         float(row['bb_pos'])          if pd.notna(row.get('bb_pos'))          else np.nan,
+                    'ema_stack':      float(row['ema_stack'])       if pd.notna(row.get('ema_stack'))       else np.nan,
+                    'macd_hist':      float(row['macd_hist'])       if pd.notna(row.get('macd_hist'))       else np.nan,
+                    'close_pos':      float(row['close_pos'])       if pd.notna(row.get('close_pos'))       else np.nan,
+                    'atr_candle':     float(row['atr_candle'])      if pd.notna(row.get('atr_candle'))      else np.nan,
+                    'gap_pct':        float(row['gap_pct'])         if pd.notna(row.get('gap_pct'))         else np.nan,
+                    'consec_down':    float(row['consec_down'])     if pd.notna(row.get('consec_down'))     else np.nan,
+                    'price_vs_sma50': float(row['price_vs_sma50'])  if pd.notna(row.get('price_vs_sma50'))  else np.nan,
+                    'fwd_10':         float(fwd_10.loc[dt]),
+                    'fwd_63':         float(fwd_63.loc[dt]) if pd.notna(fwd_63.loc[dt]) else np.nan,
+                })
+        except Exception:
+            pass
+
+        if i % 50 == 0 or i == total:
+            print(f"  {i}/{total} tickers … {len(rows):,} rows", end='\r', flush=True)
+
+    print()
+    if not rows:
+        print("No data collected.")
+        return
+
+    df_all = pd.DataFrame(rows)
+    df_all['date'] = pd.to_datetime(df_all['date'])
+
+    print("  Loading SPY RSI for market regime …")
+    spy_rsi_series = _load_spy_rsi(pd.DatetimeIndex(df_all['date'].unique()))
+    df_all['spy_rsi'] = df_all['date'].map(spy_rsi_series.to_dict())
+    print(f"  Total ticker-days: {len(df_all):,}\n")
+
+    # ── Apply base signal ─────────────────────────────────────────────────────
+    base_mask = (
+        df_all['rsi'].notna()          & (df_all['rsi']          <  base_rsi)  &
+        df_all['day_chg'].notna()      & (df_all['day_chg']       <  base_day)  &
+        df_all['rvol'].notna()         & (df_all['rvol']          >  base_rvol) &
+        df_all['sma200_ratio'].notna() & (df_all['sma200_ratio']  >  0.75)      &
+        (df_all['ema_stack'] == 1)
+    )
+    base   = df_all[base_mask].copy()
+    base3m = base.dropna(subset=['fwd_63'])
+    n_base = len(base3m)
+
+    if n_base == 0:
+        print("Base signal has 0 signals with 3-month data. Try relaxing --base-rsi / --base-rvol.")
+        return
+
+    base_win3mo = (base3m['fwd_63'] > 0).mean() * 100
+    base_avg3mo = base3m['fwd_63'].mean()
+
+    sep = "═" * 96
+
+    print(f"{sep}")
+    print(f"  REFINE SWEEP — second-layer filters + sector exclusions on recovery base")
+    print(f"  Base: RSI<{base_rsi} | day<{base_day}% | RVOL>{base_rvol}× | SMA200>75% | EMA stack")
+    print(f"  Base N={n_base}  |  3mo win%={base_win3mo:.1f}%  |  avg return={base_avg3mo:+.2f}%")
+    print(sep)
+
+    def _stats(sub: pd.DataFrame, label: str) -> dict:
+        s3 = sub.dropna(subset=['fwd_63'])
+        n = len(s3)
+        if n == 0:
+            return {'n': 0, 'win3': np.nan, 'avg3': np.nan,
+                    'dwin': np.nan, 'davg': np.nan, 'label': label}
+        win3 = (s3['fwd_63'] > 0).mean() * 100
+        avg3 = s3['fwd_63'].mean()
+        return {'n': n, 'win3': win3, 'avg3': avg3,
+                'dwin': win3 - base_win3mo, 'davg': avg3 - base_avg3mo, 'label': label}
+
+    def _row(label: str, r: dict, w: int = 40) -> None:
+        warn = ' ⚠' if r['n'] < 15 else ''
+        ns   = f"{r['n']}{warn}"
+        if r['n'] == 0 or pd.isna(r.get('win3')):
+            print(f"  {label:<{w}}  {ns:>7}  {'N/A':>8}  {'N/A':>8}  {'N/A':>7}  {'N/A':>7}")
+        else:
+            print(f"  {label:<{w}}  {ns:>7}  {r['win3']:>7.1f}%  {r['avg3']:>+7.2f}%  "
+                  f"{r['dwin']:>+6.1f}pp  {r['davg']:>+6.2f}%")
+
+    # ─── Part A — Single second-layer filter sweep ─────────────────────────────
+    print(f"\n  PART A — Single second-layer filter sweep (applied on top of base signal)")
+    print(f"  ⚠ = N<15  |  {'Filter':<40}  {'N':>5}  {'3moWin%':>8}  {'AvgRet':>8}  {'ΔWin%':>7}  {'ΔAvg%':>7}")
+    print("  " + "─" * 85)
+
+    filter_candidates: list[tuple[str, pd.Series]] = [
+        ('bb_pos < 0.20',         (base['bb_pos']         <  0.20).fillna(False)),
+        ('bb_pos < 0.10',         (base['bb_pos']         <  0.10).fillna(False)),
+        ('macd_hist < 0',         (base['macd_hist']       <  0   ).fillna(False)),
+        ('close_pos < 0.40',      (base['close_pos']       <  0.40).fillna(False)),
+        ('atr_candle > 1.5',      (base['atr_candle']      >  1.5 ).fillna(False)),
+        ('gap_pct < -2%',         (base['gap_pct']         < -2.0 ).fillna(False)),
+        ('consec_down >= 2',      (base['consec_down']     >= 2.0 ).fillna(False)),
+        ('price_vs_sma50 < 0.90', (base['price_vs_sma50']  <  0.90).fillna(False)),
+        ('sma200 0.75-0.95',      ((base['sma200_ratio'] >= 0.75) &
+                                   (base['sma200_ratio'] <  0.95)).fillna(False)),
+        ('spy_rsi < 50',          (base['spy_rsi']         <  50  ).fillna(False)),
+    ]
+
+    part_a_results: list[dict] = []
+    for label, cond in filter_candidates:
+        r = _stats(base[cond], label)
+        r['mask'] = cond
+        part_a_results.append(r)
+        _row(label, r)
+
+    part_a_sorted = sorted(part_a_results, key=lambda x: x.get('dwin') or -999, reverse=True)
+    print(f"\n  Sorted by ΔWin% descending:")
+    print(f"  {'Filter':<40}  {'N':>5}  {'3moWin%':>8}  {'ΔWin%':>7}")
+    print("  " + "─" * 65)
+    for r in part_a_sorted:
+        warn = ' ⚠' if r['n'] < 15 else ''
+        ns   = f"{r['n']}{warn}"
+        if r['n'] == 0 or pd.isna(r.get('dwin')):
+            print(f"  {r['label']:<40}  {ns:>7}  {'N/A':>8}  {'N/A':>7}")
+        else:
+            print(f"  {r['label']:<40}  {ns:>7}  {r['win3']:>7.1f}%  {r['dwin']:>+6.1f}pp")
+
+    # ─── Part B — Sector exclusion tests ──────────────────────────────────────
+    KEEP_SECTORS = {'Information Technology', 'Consumer Discretionary', 'Industrials', 'Financials'}
+
+    print(f"\n{sep}")
+    print(f"  PART B — Sector exclusion tests (base N={n_base}, 3mo win%={base_win3mo:.1f}%)")
+
+    # Full per-sector breakdown
+    sec_stats = base3m.groupby('sector').agg(
+        n=('fwd_63', 'count'),
+        win_pct=('fwd_63', lambda x: (x > 0).mean() * 100),
+        avg_ret=('fwd_63', 'mean'),
+    ).sort_values('win_pct', ascending=False)
+    sfmt = "    {:<38}  {:>5}  {:>8}  {:>8}  {:>8}"
+    print(f"\n  Per-sector breakdown (sorted by 3mo win%):")
+    print(sfmt.format("Sector", "N", "3moWin%", "AvgRet", "ΔWin%"))
+    print("    " + "─" * 68)
+    for sec, srow in sec_stats.iterrows():
+        dw   = srow['win_pct'] - base_win3mo if pd.notna(srow['win_pct']) else np.nan
+        dw_s = f"{dw:+.1f}pp" if pd.notna(dw) else "N/A"
+        ws   = f"{srow['win_pct']:.1f}%" if pd.notna(srow['win_pct']) else "N/A"
+        ar   = f"{srow['avg_ret']:+.2f}%" if pd.notna(srow['avg_ret']) else "N/A"
+        print(sfmt.format(str(sec)[:38], int(srow['n']), ws, ar, dw_s))
+
+    excl_tests: list[tuple[str, pd.Series]] = [
+        ('Excl. Health Care',                ~base['sector'].isin(['Health Care'])),
+        ('Excl. Communication Services',     ~base['sector'].isin(['Communication Services'])),
+        ('Excl. Utilities',                  ~base['sector'].isin(['Utilities'])),
+        ('Excl. HC + Comm Svcs + Utilities', ~base['sector'].isin(['Health Care', 'Communication Services', 'Utilities'])),
+        ('Excl. Energy',                     ~base['sector'].isin(['Energy'])),
+        ('Excl. Real Estate',                ~base['sector'].isin(['Real Estate'])),
+        ('Keep Tech+CDis+Indus+Fin only',     base['sector'].isin(KEEP_SECTORS)),
+    ]
+
+    print(f"\n  Exclusion / keep tests:")
+    print(f"  {'Exclusion':<45}  {'N':>5}  {'3moWin%':>8}  {'AvgRet':>8}  {'ΔWin%':>7}  {'ΔAvg%':>7}")
+    print("  " + "─" * 87)
+
+    part_b_results: list[dict] = []
+    for label, mask in excl_tests:
+        r = _stats(base[mask], label)
+        r['mask'] = mask
+        part_b_results.append(r)
+        _row(label, r, w=45)
+
+    # ─── Part C — Combination testing ─────────────────────────────────────────
+    print(f"\n{sep}")
+    print(f"  PART C — Combination testing")
+
+    reliable_a = [r for r in part_a_sorted
+                  if r.get('n', 0) >= 15 and pd.notna(r.get('dwin'))][:3]
+    best_sector_r = max(
+        (r for r in part_b_results if r.get('n', 0) >= 15 and pd.notna(r.get('dwin'))),
+        key=lambda x: x.get('dwin', -999),
+        default=None,
+    )
+
+    combo_results: list[dict] = []
+
+    if len(reliable_a) >= 2:
+        print(f"\n  Pairs of top-{len(reliable_a)} reliable single filters (N≥15):")
+        print(f"  {'Combination':<58}  {'N':>5}  {'3moWin%':>8}  {'ΔWin%':>7}")
+        print("  " + "─" * 82)
+        for ii in range(len(reliable_a)):
+            for jj in range(ii + 1, len(reliable_a)):
+                ra, rb = reliable_a[ii], reliable_a[jj]
+                sub = base[ra['mask'] & rb['mask']]
+                lbl = f"{ra['label']} + {rb['label']}"
+                r   = _stats(sub, lbl)
+                combo_results.append(r)
+                warn = ' ⚠' if r['n'] < 15 else ''
+                ns   = f"{r['n']}{warn}"
+                if r['n'] == 0 or pd.isna(r.get('win3')):
+                    print(f"  {lbl:<58}  {ns:>7}  {'N/A':>8}  {'N/A':>7}")
+                else:
+                    print(f"  {lbl:<58}  {ns:>7}  {r['win3']:>7.1f}%  {r['dwin']:>+6.1f}pp")
+    else:
+        print(f"\n  (Fewer than 2 reliable single filters — skipping pair tests)")
+
+    if len(reliable_a) >= 3:
+        ra, rb, rc = reliable_a[0], reliable_a[1], reliable_a[2]
+        sub = base[ra['mask'] & rb['mask'] & rc['mask']]
+        lbl = f"{ra['label']} + {rb['label']} + {rc['label']}"
+        r   = _stats(sub, lbl)
+        combo_results.append(r)
+        warn = ' ⚠' if r['n'] < 15 else ''
+        ns   = f"{r['n']}{warn}"
+        print(f"\n  Triple: {lbl}")
+        if r['n'] > 0 and pd.notna(r.get('win3')):
+            print(f"    N={ns}  3moWin%={r['win3']:.1f}%  ΔWin%={r['dwin']:>+.1f}pp  avg={r['avg3']:>+.2f}%")
+        else:
+            print(f"    N={ns} — insufficient data")
+
+    if reliable_a and best_sector_r:
+        ra  = reliable_a[0]
+        sub = base[ra['mask'] & best_sector_r['mask']]
+        lbl = f"{ra['label']} + {best_sector_r['label']}"
+        r   = _stats(sub, lbl)
+        combo_results.append(r)
+        warn = ' ⚠' if r['n'] < 15 else ''
+        ns   = f"{r['n']}{warn}"
+        print(f"\n  Best single filter + best sector exclusion: {lbl}")
+        if r['n'] > 0 and pd.notna(r.get('win3')):
+            print(f"    N={ns}  3moWin%={r['win3']:.1f}%  ΔWin%={r['dwin']:>+.1f}pp  avg={r['avg3']:>+.2f}%")
+        else:
+            print(f"    N={ns} — insufficient data")
+
+    valid_combos = sorted(
+        [r for r in combo_results if r.get('n', 0) > 0 and pd.notna(r.get('win3'))],
+        key=lambda x: x['win3'], reverse=True,
+    )
+    if valid_combos:
+        print(f"\n  All combinations sorted by 3mo win%:")
+        print(f"  {'Combination':<58}  {'N':>5}  {'3moWin%':>8}  {'ΔWin%':>7}")
+        print("  " + "─" * 82)
+        for r in valid_combos:
+            warn = ' ⚠' if r['n'] < 15 else ''
+            ns   = f"{r['n']}{warn}"
+            print(f"  {r['label']:<58}  {ns:>7}  {r['win3']:>7.1f}%  {r['dwin']:>+6.1f}pp")
+
+    # ─── Part D — Recommendations ──────────────────────────────────────────────
+    ACCEPT_FILTER_DWIN = 3.0
+    ACCEPT_SECTOR_DWIN = 2.0
+
+    accepted_filters = sorted(
+        [r for r in part_a_results
+         if r.get('n', 0) >= 15 and pd.notna(r.get('dwin')) and r['dwin'] >= ACCEPT_FILTER_DWIN],
+        key=lambda r: r['dwin'], reverse=True,
+    )
+    accepted_sectors = sorted(
+        [r for r in part_b_results
+         if r.get('n', 0) >= 15 and pd.notna(r.get('dwin')) and r['dwin'] >= ACCEPT_SECTOR_DWIN],
+        key=lambda r: r['dwin'], reverse=True,
+    )
+    accepted_combos = sorted(
+        [r for r in combo_results
+         if r.get('n', 0) >= 15 and pd.notna(r.get('dwin')) and r['dwin'] >= ACCEPT_FILTER_DWIN],
+        key=lambda r: r['dwin'], reverse=True,
+    )
+
+    print(f"\n{sep}")
+    print(f"  PART D — RECOMMENDATIONS")
+    print(f"  Acceptance: single filter N≥15 AND Δwin%≥+{ACCEPT_FILTER_DWIN:.0f}pp  |  "
+          f"sector N≥15 AND Δwin%≥+{ACCEPT_SECTOR_DWIN:.0f}pp")
+    print(sep)
+    print(f"\n  Base (N={n_base}): {base_win3mo:.1f}% 3mo win rate | {base_avg3mo:+.2f}% avg return\n")
+
+    if accepted_filters:
+        bf = accepted_filters[0]
+        print(f"  ✓ Best single filter:     [{bf['label']}]")
+        print(f"    N={bf['n']}  win%={bf['win3']:.1f}% (Δ{bf['dwin']:+.1f}pp)  avg={bf['avg3']:+.2f}%")
+        print(f"    → Add to CONFIG and _filter_ticker() in scanner.py + recovery_scanner.py")
+    else:
+        print(f"  ✗ No single filter improved by ≥+{ACCEPT_FILTER_DWIN:.0f}pp with N≥15")
+
+    if accepted_sectors:
+        bs = accepted_sectors[0]
+        print(f"\n  ✓ Best sector exclusion:  [{bs['label']}]")
+        print(f"    N={bs['n']}  win%={bs['win3']:.1f}% (Δ{bs['dwin']:+.1f}pp)  avg={bs['avg3']:+.2f}%")
+        print(f"    → Add EXCLUDED_SECTORS set + filter check in scanner.py + recovery_scanner.py")
+    else:
+        print(f"\n  ✗ No sector exclusion improved by ≥+{ACCEPT_SECTOR_DWIN:.0f}pp with N≥15")
+
+    if accepted_combos:
+        bc = accepted_combos[0]
+        print(f"\n  ✓ Best combination:       [{bc['label']}]")
+        print(f"    N={bc['n']}  win%={bc['win3']:.1f}% (Δ{bc['dwin']:+.1f}pp)  avg={bc['avg3']:+.2f}%")
+    else:
+        print(f"\n  ✗ No combination met acceptance criteria (N≥15, Δwin%≥+{ACCEPT_FILTER_DWIN:.0f}pp)")
+
+    print(f"\n  Tip: run with strict base (--base-rsi 30 --base-rvol 3.5) to match "
+          f"current scanner.py thresholds.")
+    print(f"\n{sep}\n")
+
+
+# ─── 9. Momentum screener validation ─────────────────────────────────────────
 
 def _run_validate_momentum(
     tickers: list[str],
@@ -978,6 +1362,14 @@ def main() -> None:
                         help='Sweep recovery screener thresholds (3-month hold accuracy)')
     parser.add_argument('--validate-momentum', action='store_true',
                         help='Sweep momentum screener thresholds (3-month hold accuracy)')
+    parser.add_argument('--refine',     action='store_true',
+                        help='Sweep second-layer filters + sector exclusions on recovery base')
+    parser.add_argument('--base-rsi',   type=float, default=35.0,
+                        help='Refine base: max RSI (default 35 for broader N; use 30 for strict match)')
+    parser.add_argument('--base-day',   type=float, default=-5.0,
+                        help='Refine base: max day change %% (default -5.0)')
+    parser.add_argument('--base-rvol',  type=float, default=3.0,
+                        help='Refine base: min RVOL (default 3.0; use 3.5 for strict match)')
     args, _ = parser.parse_known_args()
 
     tickers, sector_map = _get_sp500()
@@ -991,6 +1383,17 @@ def main() -> None:
     if args.validate_momentum:
         print(f"\nMomentum Screener Validation — 3-month hold accuracy sweep\n")
         _run_validate_momentum(tickers, raw, sector_map, scan_from=args.scan_from)
+        return
+
+    if args.refine:
+        print(f"\nRefine Sweep — second-layer filters + sector exclusions\n")
+        _run_refine(
+            tickers, raw, sector_map,
+            scan_from=args.scan_from,
+            base_rsi=args.base_rsi,
+            base_day=args.base_day,
+            base_rvol=args.base_rvol,
+        )
         return
 
     print(f"\nReverse Backtest: find S&P 500 stocks with ≥{int(args.min_return*100)}% return "

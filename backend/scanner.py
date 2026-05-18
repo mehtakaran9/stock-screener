@@ -52,7 +52,16 @@ CONFIG = {
     "MIN_RVOL":          3.5,            # RVOL > 3.5× (capitulation volume surge)
     "MAX_RSI":           30.0,           # RSI(14) < 30 (extreme oversold / capitulation)
     "MIN_SMA200_RATIO":  0.75,           # price > 75% of SMA200 (structural uptrend intact)
+    "MAX_SMA50_RATIO":   0.90,           # price ≤ 90% of SMA50 (deep discount = more recovery fuel)
 }
+
+# Sectors excluded from scanning — empirically lower 3-month accuracy on panic-selloff setups
+# (validated via: python3 -m backend.reverse_backtest --refine --base-rsi 30 --base-rvol 3.5)
+EXCLUDED_SECTORS: frozenset[str] = frozenset({
+    "Health Care",
+    "Communication Services",
+    "Utilities",
+})
 
 _RATE_LIMIT_SIGNALS = ('rate limit', 'too many requests', 'yfratelimit')
 
@@ -142,6 +151,7 @@ async def _fetch_market_caps_bulk_async(chunk: list[str], semaphore: asyncio.Sem
 
 
 def get_active_filters():
+    excl = ", ".join(sorted(EXCLUDED_SECTORS))
     return [
         f"Day change < {CONFIG['MAX_DAY_CHANGE']:.0f}% (panic selloff)",
         f"Market Cap > ${CONFIG['MIN_MARKET_CAP']/1_000_000_000:.0f}B",
@@ -151,13 +161,16 @@ def get_active_filters():
         f"RSI(14) < {CONFIG['MAX_RSI']:.0f} (extreme oversold)",
         f"Price > {int(CONFIG['MIN_SMA200_RATIO']*100)}% of SMA200 (uptrend intact)",
         "EMA20 > EMA50 > EMA200 (macro trend aligned)",
+        f"Price ≤ {int(CONFIG['MAX_SMA50_RATIO']*100)}% of SMA50 (deep discount)",
+        f"Sector exclusion: {excl}",
     ]
 
 FALLBACK_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "AMD", "NFLX", "PYPL"]
 
 def get_full_market_tickers() -> tuple[list[str], bool]:
     """
-    Fetches S&P 500 tickers. Returns (tickers, is_full_list).
+    Fetches S&P 500 tickers with EXCLUDED_SECTORS pre-filtered.
+    Returns (tickers, is_full_list).
     is_full_list=False means the S&P 500 CSV was unavailable and a fallback was used.
     """
     try:
@@ -165,7 +178,21 @@ def get_full_market_tickers() -> tuple[list[str], bool]:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         df = pd.read_csv(io.StringIO(resp.text))
-        tickers = [t.replace('.', '-') for t in df['Symbol'].tolist()]
+        try:
+            sector_col = (
+                'GICS Sector' if 'GICS Sector' in df.columns
+                else ('Sector' if 'Sector' in df.columns else None)
+            )
+            if sector_col:
+                tickers = [
+                    t.replace('.', '-')
+                    for t, s in zip(df['Symbol'], df[sector_col])
+                    if s not in EXCLUDED_SECTORS
+                ]
+            else:
+                tickers = [t.replace('.', '-') for t in df['Symbol'].tolist()]
+        except Exception:
+            tickers = [t.replace('.', '-') for t in df['Symbol'].tolist()]
         return tickers, True
     except Exception as e:
         logger.error(f"Failed to fetch S&P 500 list, using fallback: {e}")
@@ -265,6 +292,13 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
             logger.debug(f"{ticker} failed EMA stack: {curr_ema20}/{curr_ema50}/{curr_ema200}")
             return None
 
+        # ── Filter 8: Price ≤ 90% of SMA50 (deeper discount = more recovery fuel) ─
+        sma50_series  = df['Close'].rolling(window=50).mean()
+        curr_sma50_raw = float(sma50_series.iloc[-1])
+        if curr_sma50_raw > 0 and price / curr_sma50_raw >= CONFIG["MAX_SMA50_RATIO"]:
+            logger.debug(f"{ticker} price/SMA50={price/curr_sma50_raw:.2f} ≥ {CONFIG['MAX_SMA50_RATIO']}")
+            return None
+
         # ── Display indicators (informational, not used as filters) ──────────
         ema8_series = ta.ema(df['Close'], length=8)
         curr_ema8   = round(float(ema8_series.iloc[-1]), 2) if ema8_series is not None and not ema8_series.empty else round(price, 2)
@@ -280,7 +314,7 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
         else:
             curr_macd = curr_macd_signal = curr_macd_hist = 0.0
 
-        curr_sma50 = round(float(df['Close'].rolling(window=50).mean().iloc[-1]), 2)
+        curr_sma50 = round(curr_sma50_raw, 2)
 
         bb_result = ta.bbands(df['Close'], length=20, std=2)
         if bb_result is not None and not bb_result.empty:

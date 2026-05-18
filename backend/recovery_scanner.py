@@ -54,11 +54,20 @@ RECOVERY_CONFIG = {
     "MIN_RVOL":           3.5,   # relative volume > 3.5× (elevated panic selling)
     "MIN_SMA200_RATIO":   0.75,  # price > 75% of SMA200 (structural uptrend still intact)
     "REQUIRE_EMA_STACK":  True,  # EMA20 > EMA50 > EMA200 (macro trend aligned)
+    "MAX_SMA50_RATIO":    0.90,  # price ≤ 90% of SMA50 (deep discount = more recovery fuel)
     # Additional structural filters
     "MIN_MARKET_CAP":    1_000_000_000,  # > $1B (liquidity)
     "MIN_PRICE":          5.0,           # > $5 (no penny stocks)
     "MIN_VOLUME":       500_000,         # > 500K shares traded
 }
+
+# Sectors excluded — empirically lower accuracy on panic-selloff recovery plays
+# (validated via: python3 -m backend.reverse_backtest --refine --base-rsi 30 --base-rvol 3.5)
+EXCLUDED_SECTORS: frozenset[str] = frozenset({
+    "Health Care",
+    "Communication Services",
+    "Utilities",
+})
 
 HOLD_DAYS = 63   # 3-month hold — backtested 68% win rate, +6.7% avg return
 
@@ -72,6 +81,19 @@ def _get_sp500_tickers() -> list[str]:
         resp = requests.get(url, timeout=20)
         resp.raise_for_status()
         df = pd.read_csv(io.StringIO(resp.text))
+        try:
+            sector_col = (
+                'GICS Sector' if 'GICS Sector' in df.columns
+                else ('Sector' if 'Sector' in df.columns else None)
+            )
+            if sector_col:
+                return [
+                    t.replace('.', '-')
+                    for t, s in zip(df['Symbol'], df[sector_col])
+                    if s not in EXCLUDED_SECTORS
+                ]
+        except Exception:
+            pass
         return [t.replace('.', '-') for t in df['Symbol'].tolist()]
     except Exception:
         logger.warning("S&P 500 CSV fetch failed — using 10-ticker fallback list")
@@ -149,6 +171,12 @@ def _filter_recovery_ticker(
         float(ema20.iloc[-1]) > float(ema50.iloc[-1]) > float(ema200.iloc[-1])
     )
     if cfg['REQUIRE_EMA_STACK'] and not ema_stack:
+        return None
+
+    # ── SMA50 ratio — price must be ≤ 90% of SMA50 (deep discount) ───────────
+    sma50     = close.rolling(50).mean()
+    sma50_val = float(sma50.iloc[-1]) if not pd.isna(sma50.iloc[-1]) else 0.0
+    if sma50_val > 0 and last_price / sma50_val >= cfg['MAX_SMA50_RATIO']:
         return None
 
     # ── ATR(14) for stop-loss sizing ──────────────────────────────────────────
@@ -270,7 +298,9 @@ def main() -> None:
     print(f"Filters: RSI < {RECOVERY_CONFIG['MAX_RSI']} | "
           f"Day < {RECOVERY_CONFIG['MAX_DAY_CHG']}% | "
           f"RVOL > {RECOVERY_CONFIG['MIN_RVOL']}× | "
-          f"SMA200 ratio > {RECOVERY_CONFIG['MIN_SMA200_RATIO']}\n")
+          f"SMA200 ratio > {RECOVERY_CONFIG['MIN_SMA200_RATIO']} | "
+          f"Price ≤ {int(RECOVERY_CONFIG['MAX_SMA50_RATIO']*100)}% of SMA50\n"
+          f"Sector exclusion: {', '.join(sorted(EXCLUDED_SECTORS))}\n")
 
     tickers = _get_sp500_tickers()
     results = screen_stocks(tickers)

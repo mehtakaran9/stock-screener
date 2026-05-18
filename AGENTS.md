@@ -6,7 +6,7 @@ This project is a **Technical Stock Screener** that identifies high-probability 
 ### Core Filters (8 total, applied in sequence):
 
 Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
-Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days): **68% 3-month win rate, +6.7% avg return**.
+Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **67% 3-month win rate, +7.7% avg return**.
 
 - **Panic selloff**: Day Change < −5% (entry signal — the opposite of momentum)
 - **Liquidity**: Market Cap > $1B, Price > $5, Daily Volume > 500K shares
@@ -14,6 +14,8 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days): **68% 3-mont
 - **Extreme oversold**: RSI(14) < 30 (capitulation-level reading)
 - **Structural uptrend (SMA200)**: Price > 75% of SMA200 (not in freefall)
 - **EMA Stack**: EMA20 > EMA50 > EMA200 (macro trend still aligned)
+- **Deep SMA50 discount**: Price ≤ 90% of SMA50 (+6.1pp win rate; validated N=52, 5-yr backtest)
+- **Sector exclusion**: Excludes Health Care, Communication Services, Utilities (+2.9pp; validated N=78)
 
 ## Why
 - **FastAPI Backend**: Chosen for its high performance and native support for asynchronous streaming (SSE), allowing users to see results in real-time without waiting for a full market scan.
