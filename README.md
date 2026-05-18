@@ -20,28 +20,37 @@
 
 A real-time technical stock screener that identifies oversold recovery setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
-**Strategy: oversold mean-reversion.** The screener buys panic selloffs in large-cap stocks that are still in structural uptrends. Calibrated from a 5-year reverse backtest (666K ticker-days) with second-layer filter sweep: **67% 3-month win rate, +7.7% average return** across ~26 signals/year.
+**Strategy: oversold mean-reversion** — buy panic selloffs in large-cap stocks that are still in structural uptrends.
+
+> **Backtest results** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
+>
+> | Metric | Value |
+> |--------|-------|
+> | 3-month win rate | **67%** |
+> | Average 3-month return | **+7.7%** |
+> | Signals per year | ~26 |
+> | Recommended hold | 63 trading days (3 months) |
 
 ---
 
 ## What it does
 
-On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies eight filters in sequence:
+On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies **10 filters** in sequence:
 
-| Filter | Threshold | Rationale |
-|--------|-----------|-----------|
-| Day change | < −5% | Panic selloff — entry signal for mean-reversion |
-| Market cap | > $1 B | Liquidity — eliminates micro/nano-caps |
-| Price | > $5 | Avoids penny stocks |
-| Volume | > 500 K shares | Confirms real participation on the selloff day |
-| RVOL | > 3.5× | Capitulation volume surge (panic, not routine selling) |
-| RSI (14) | < 30 | Extreme oversold / capitulation |
-| SMA 200 | Price > 75% of SMA200 | Structural uptrend still intact — not in freefall |
-| EMA stack | EMA20 > EMA50 > EMA200 | Macro trend aligned across all timeframes |
-| SMA 50 | Price ≤ 90% of SMA50 | Deep discount below 50-day trend = more recovery fuel |
-| Sector | Excludes Health Care, Communication Services, Utilities | Empirically lower 3-month accuracy on panic-selloff setups |
+| # | Filter | Threshold | Rationale |
+|---|--------|-----------|-----------|
+| 1 | Day change | **< −5%** | Panic selloff — entry signal for mean-reversion |
+| 2 | Market cap | **> $1 B** | Liquidity — eliminates micro/nano-caps |
+| 3 | Price | **> $5** | Avoids penny stocks |
+| 4 | Volume | **> 500 K shares** | Confirms real participation on the selloff day |
+| 5 | RVOL | **> 3.5×** | Capitulation volume surge (panic, not routine selling) |
+| 6 | RSI (14) | **< 30** | Extreme oversold / capitulation |
+| 7 | SMA 200 | **Price > 75% of SMA200** | Structural uptrend still intact — not in freefall |
+| 8 | EMA stack | **EMA20 > EMA50 > EMA200** | Macro trend aligned across all timeframes |
+| 9 | SMA 50 | **Price ≤ 90% of SMA50** | Deep discount below 50-day trend — +6.1pp win rate vs. base |
+| 10 | Sector | **Excludes Health Care, Comm. Services, Utilities** | Empirically −10 to −17pp win rate on panic-selloff setups |
 
-Tickers that pass all eight filters are surfaced in the UI as potential recovery trade candidates and emailed at 12 PM ET on NYSE trading days. Recommended hold: **~63 trading days (3 months)**.
+Tickers that pass all 10 filters are surfaced in the UI as potential recovery trade candidates and emailed at 12 PM ET on NYSE trading days. Recommended hold: **63 trading days (3 months)**.
 
 Each result also includes computed entry / stop levels for the snap-back trade:
 
@@ -52,6 +61,19 @@ Each result also includes computed entry / stop levels for the snap-back trade:
 | ③ | SMA200 test | SMA200 value | Under SMA50 | SMA50 − 0.5 × ATR14 |
 
 Risk per share for each scenario is shown in the expanded row of the web UI table.
+
+### Backtest calibration
+
+The filter thresholds above were chosen empirically via a **full 5-year sweep** of every S&P 500 constituent (2021–2026):
+
+| Step | Method | Outcome |
+|------|--------|---------|
+| Base sweep | 18 threshold combinations tested against 666K ticker-days | Best base: **RSI < 30, Day < −5%, RVOL > 3.5×, SMA200 > 75%, EMA stack** |
+| Second-layer sweep | 10 additional filters tested on top of the base | `price ≤ 90% SMA50` adds **+6.1pp** (N = 52 signals) |
+| Sector sweep | All 11 GICS sectors scored for 3-month win rate | Communication Services (44%), Utilities (50%), Health Care (56%) all underperform the **61% base** — excluded |
+| Final result | Combined configuration | **67% 3-month win rate · +7.7% avg return** |
+
+Run the backtest yourself: `python3 -m backend.reverse_backtest --refine --base-rsi 30 --base-rvol 3.5`
 
 ### API output fields
 
