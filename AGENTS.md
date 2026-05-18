@@ -3,16 +3,18 @@
 ## What
 This project is a **Technical Stock Screener** that identifies high-probability trading setups based on momentum and trend-following criteria. It scans the US stock market (S&P 500 constituents by default) and filters for stocks that are breaking out while maintaining structural strength.
 
-### Core Filters (11 total, applied in sequence):
-- **Momentum**: Day Change > 3%
+### Core Filters (15 total, applied in sequence):
+- **Momentum**: Day Change > 4%, RVOL ≥ 2.5×
 - **Liquidity**: Market Cap > $1B, Price > $5, Daily Volume > 500K shares
 - **Trend (SMA200)**: Price > 75% of SMA200
-- **Near-term support (EMA8)**: Price > 80% of EMA8
-- **RSI(14)**: 50 – 70 (momentum confirmed, not overbought)
+- **Near-term support (EMA8)**: Price > 80% of EMA8; last 3 closes above EMA8
+- **RSI(14)**: 55 – 70 (momentum confirmed, not overbought)
 - **MACD histogram > 0**: bullish crossover active (MACD line above signal)
-- **Price > EMA50**: medium-term uptrend intact
-- **Price > EMA200**: long-term uptrend intact
-- **Price < BB upper (20, 2)**: not overextended above the upper Bollinger Band
+- **MA Stack + Slope**: EMA20 > EMA50 > EMA200 (all three rising over last 5 bars)
+- **A/D Line**: trending up over 20 days (accumulation confirmed)
+- **ATR candle**: candle range ≥ 1.5 × ATR14 (meaningful breakout bar, not noise)
+- **Close quality**: close in top 35% of day's range (rejects gap-and-fades, shooting stars)
+- **Bollinger Band breakout**: price > BB upper (20, 2) + bands widening
 
 ## Why
 - **FastAPI Backend**: Chosen for its high performance and native support for asynchronous streaming (SSE), allowing users to see results in real-time without waiting for a full market scan.
@@ -25,7 +27,7 @@ This project is a **Technical Stock Screener** that identifies high-probability 
 1.  **Backend Scanning Engine (`backend/scanner.py`)**: 
     - Fetches S&P 500 constituents from a public CSV; falls back to a 10-ticker list if unavailable.
     - Uses `yfinance` to download 2 years of daily OHLCV data in chunks of 50 tickers.
-    - Applies the eleven technical filters sequentially using `pandas` and `pandas-ta-classic`.
+    - Applies the fifteen technical filters sequentially using `pandas` and `pandas-ta-classic`.
 2.  **Streaming API (`backend/main.py`)**: 
     - Exposes `/api/scan` — a `StreamingResponse` (SSE) endpoint that pushes progress and result events to the frontend as stocks are identified. Results are cached for 10 minutes (`backend/scan_cache.json`). A module-level `asyncio.Lock` ensures only one full scan runs at a time.
     - Exposes `/api/filters` — returns the active filter list for display in the UI.

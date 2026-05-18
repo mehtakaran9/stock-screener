@@ -24,23 +24,27 @@ A real-time technical stock screener that identifies momentum breakout setups ac
 
 ## What it does
 
-On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies eleven filters in sequence:
+On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S&P 500 tickers and applies fifteen filters in sequence:
 
 | Filter | Threshold | Rationale |
 |--------|-----------|-----------|
-| Day change | > 3% | Momentum — significant single-day move |
+| Day change | > 4% | Strong single-day momentum |
 | Market cap | > $1 B | Liquidity — eliminates micro/nano-caps |
 | Price | > $5 | Avoids penny stocks |
 | Volume | > 500 K shares | Confirms institutional participation |
+| RVOL | ≥ 2.5× | Volume spike vs. 20-day average — strong conviction |
 | SMA 200 | Price > 75% of SMA200 | Stock is in a long-term uptrend |
-| EMA 8 | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
-| RSI (14) | 50 – 70 | Momentum confirmed without being overbought |
+| EMA 8 (position) | Price > 80% of EMA8 | Near-term momentum confirmed, not extended |
+| EMA 8 (trend) | Last 3 closes above EMA8 | Multi-day uptrend, not a single-day spike |
+| RSI (14) | 55 – 70 | Momentum confirmed without being overbought |
 | MACD histogram | > 0 | Bullish crossover active (MACD line above signal) |
-| EMA 50 | Price > EMA50 | Medium-term uptrend intact |
-| EMA 200 | Price > EMA200 | Long-term uptrend intact |
-| Bollinger Band | Price < BB upper (20, 2) | Not overextended above the upper band |
+| MA stack + slope | EMA20 > EMA50 > EMA200, all rising | Full trend alignment across timeframes |
+| A/D Line | Trending up over 20 days | Accumulation confirmed |
+| ATR candle | Candle range ≥ 1.5 × ATR14 | Meaningful breakout bar, not noise |
+| Close position | Close in top 35% of day's range | Rejects gap-and-fades and shooting stars |
+| Bollinger Band | Price > BB upper (20, 2) + bands widening | Confirmed volatility expansion breakout |
 
-Tickers that pass all eleven filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
+Tickers that pass all fifteen filters are surfaced in the UI as potential swing trade candidates and emailed at 12 PM ET on NYSE trading days.
 
 Each result also includes computed swing trade levels:
 
@@ -63,11 +67,11 @@ Every matched stock returns the following fields from `/api/scan`:
 | `volume` | Day volume (shares) | ≥ 500K |
 | `vol_ratio` | Volume ÷ 20-day avg volume | informational |
 | `market_cap` | Market capitalisation | > $1B |
-| `rsi` | RSI(14) | 50 – 70 |
+| `rsi` | RSI(14) | 55 – 70 |
 | `macd`, `macd_signal`, `macd_hist` | MACD line, signal, histogram | hist > 0 |
-| `ema8`, `ema50`, `ema200` | Exponential moving averages | price > EMA50, price > EMA200 |
+| `ema8`, `ema20`, `ema50`, `ema200` | Exponential moving averages | price > EMA50, price > EMA200 |
 | `sma50`, `sma200` | Simple moving averages | price > 75% of SMA200 |
-| `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | price < BB upper |
+| `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | price > BB upper + bands widening |
 | `atr14` | Average True Range (14) | — |
 | `entry1/2/3` | Three swing entry price levels | — |
 | `stop1/2/3` | Corresponding stop loss levels | — |
