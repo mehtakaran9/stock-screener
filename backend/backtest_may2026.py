@@ -30,7 +30,7 @@ SCAN_DATES = [
     ("2026-05-05", "2026-05-06", "2026-05-12", "1-week"),
     ("2026-05-05", "2026-05-06", "2026-05-14", "9-day"),
 ]
-DOWNLOAD_START = "2024-01-01"   # 200 bars before Feb 2025 (safe margin)
+DOWNLOAD_START = "2020-01-01"   # 200 bars before Jan 2021 (5-year history)
 DOWNLOAD_END   = "2026-05-16"   # covers all scan + eval dates
 
 CACHE_DIR  = pathlib.Path(__file__).parent / "_backtest_cache"
