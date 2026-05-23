@@ -3,7 +3,7 @@
 ## What
 This project is a **Technical Stock Screener** that identifies high-probability trading setups based on momentum and trend-following criteria. It scans the US stock market (S&P 500 constituents by default) and filters for stocks that are breaking out while maintaining structural strength.
 
-### Core Filters (8 total, applied in sequence):
+### Core Filters (10 total, applied in sequence):
 
 Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
 Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **67% 3-month win rate, +7.7% avg return**.
@@ -28,7 +28,7 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
 1.  **Backend Scanning Engine (`backend/scanner.py`)**: 
     - Fetches S&P 500 constituents from a public CSV; falls back to a 10-ticker list if unavailable.
     - Uses `yfinance` to download 2 years of daily OHLCV data in chunks of 50 tickers.
-    - Applies the fourteen technical filters sequentially using `pandas` and `pandas-ta-classic`.
+    - Applies the 10 filters sequentially using `pandas` and `pandas-ta-classic`.
 2.  **Streaming API (`backend/main.py`)**: 
     - Exposes `/api/scan` — a `StreamingResponse` (SSE) endpoint that pushes progress and result events to the frontend as stocks are identified. Results are cached for 10 minutes (`backend/scan_cache.json`). A module-level `asyncio.Lock` ensures only one full scan runs at a time.
     - Exposes `/api/filters` — returns the active filter list for display in the UI.
@@ -37,7 +37,7 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
     - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row.
     - Shows an amber warning banner if the S&P 500 CSV was unavailable and fallback tickers were used.
 4.  **GitHub Actions scan + email (`backend/run_scan.py`, `backend/notifications.py`)**:
-    - `run_scan.py` runs as a GitHub Actions cron job (12 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
+    - `run_scan.py` runs as a GitHub Actions cron job (every 15 min, 11 AM–4 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
     - `notifications.py` builds a dark-themed HTML email (7 summary columns + expanded swing levels) and sends it via SMTP to all addresses in the `EMAIL_LIST` Actions variable.
     - Three workflows manage subscriptions: `daily-scan.yml` (scan + email), `add-subscriber.yml` (admin adds an address), `subscribe-request.yml` (fires when an admin approves a subscribe issue).
 

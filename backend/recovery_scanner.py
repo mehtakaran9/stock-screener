@@ -69,7 +69,7 @@ EXCLUDED_SECTORS: frozenset[str] = frozenset({
     "Utilities",
 })
 
-HOLD_DAYS = 63   # 3-month hold — backtested 68% win rate, +6.7% avg return
+HOLD_DAYS = 63   # 3-month hold — backtested 67% win rate, +7.7% avg return
 
 
 # ─── 1. Universe ──────────────────────────────────────────────────────────────
@@ -326,7 +326,7 @@ def main() -> None:
         ))
 
     print(f"\n  {len(results)} match(es) | recommended hold: {HOLD_DAYS} trading days (≈3 months)")
-    print(f"  Backtested: ~68% 3-month win rate, +6.7% avg return (5-year S&P 500)")
+    print(f"  Backtested: ~67% 3-month win rate, +7.7% avg return (5-year S&P 500)")
     print(f"  Calibrate thresholds: python3 -m backend.reverse_backtest --validate-recovery\n")
 
 
