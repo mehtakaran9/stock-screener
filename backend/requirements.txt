@@ -2,7 +2,7 @@ fastapi==0.136.3
 uvicorn==0.47.0
 yfinance==1.4.0
 pandas==3.0.3
-pandas-ta-classic==0.5.44
+pandas-ta-classic==0.6.20
 python-multipart==0.0.29
 httpx==0.28.1
 requests==2.34.2
