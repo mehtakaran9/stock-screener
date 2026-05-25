@@ -545,3 +545,175 @@ def test_screen_stocks_fails_sma50(mock_ema, mock_rsi, mock_caps, mock_dl):
     mock_ema.side_effect = mock_ema_side_effect
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
+
+
+# ── get_full_market_tickers: uncovered branches ───────────────────────────────
+
+@patch("backend.scanner.requests.get")
+def test_get_full_market_tickers_gics_sector_filters_excluded(mock_get):
+    """GICS Sector column present → excluded sectors removed (line 187)."""
+    mock_resp = MagicMock()
+    mock_resp.text = (
+        "Symbol,GICS Sector\n"
+        "AAPL,Information Technology\n"
+        "HCA,Health Care\n"
+        "T,Communication Services\n"
+        "V,Financials"
+    )
+    mock_resp.raise_for_status = MagicMock()
+    mock_get.return_value = mock_resp
+
+    tickers, is_full = get_full_market_tickers()
+
+    assert "AAPL" in tickers
+    assert "V" in tickers
+    assert "HCA" not in tickers
+    assert "T" not in tickers
+    assert is_full is True
+
+
+@patch("backend.scanner.requests.get")
+def test_get_full_market_tickers_sector_parse_exception_fallback(mock_get):
+    """Inner sector-column parse raises → falls back to plain symbol list (lines 194-195)."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.text = "dummy"
+    mock_get.return_value = mock_resp
+
+    mock_df = MagicMock()
+    mock_df.columns = pd.Index(["Symbol", "GICS Sector"])
+    call_count = [0]
+
+    def getitem_side(key):
+        if key == "Symbol":
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("parse error triggered on first access")
+            return pd.Series(["AAPL", "MSFT"])  # real Series for tolist() call
+        return pd.Series(["Technology", "Technology"])
+
+    mock_df.__getitem__.side_effect = getitem_side
+
+    with patch("backend.scanner.pd.read_csv", return_value=mock_df):
+        tickers, is_full = get_full_market_tickers()
+
+    assert "AAPL" in tickers
+    assert is_full is True
+
+
+# ── _filter_ticker: uncovered branches ───────────────────────────────────────
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+def test_filter_ticker_volume_filter_actually_reached(mock_caps, mock_dl):
+    """Volume < 500K with day_change < −5% so the volume check is actually hit (lines 254-255)."""
+    df = multiindex(make_passing_df(volume=100_000))
+    mock_dl.return_value = df
+    # last_price=130 matches final_price → day_change = (130-145)/145 = −10.3% ✓
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+def test_filter_ticker_rsi_empty_series(mock_rsi, mock_caps, mock_dl):
+    """RSI returns empty Series → filter returns None (line 269)."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([], dtype=float)
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+def test_filter_ticker_rsi_too_high_with_correct_price(mock_rsi, mock_caps, mock_dl):
+    """RSI ≥ 30 → filter returns None (lines 272-273). last_price = 130 ensures day_change passes."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([45.0] * 300)
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+@patch("backend.scanner.ta.ema")
+def test_filter_ticker_ema_none_returns_none(mock_ema, mock_rsi, mock_caps, mock_dl):
+    """EMA returns None → any(s is None …) is True → filter returns None (line 287)."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([22.0] * 300)
+
+    def ema_with_none(series, length=None, **kw):
+        if length == 20:
+            return None
+        return mock_ema_side_effect(series, length=length)
+
+    mock_ema.side_effect = ema_with_none
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.macd", return_value=None)
+def test_filter_ticker_macd_none_uses_fallback(mock_macd, mock_ema, mock_rsi, mock_caps, mock_dl):
+    """MACD returns None → fallback 0.0 values used (line 315)."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([22.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert results[0]["macd"] == 0.0
+    assert results[0]["macd_hist"] == 0.0
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+@patch("backend.scanner.ta.ema")
+@patch("backend.scanner.ta.bbands", return_value=None)
+def test_filter_ticker_bbands_none_uses_fallback(mock_bb, mock_ema, mock_rsi, mock_caps, mock_dl):
+    """bbands returns None → price-based fallback values used (lines 328-330)."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([22.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert results[0]["bb_lower"] == round(130.0 * 0.97, 2)
+    assert results[0]["bb_upper"] == round(130.0 * 1.03, 2)
+
+
+@patch("yfinance.download")
+@patch("backend.scanner._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner.ta.rsi")
+def test_filter_ticker_unexpected_exception_returns_none(mock_rsi, mock_caps, mock_dl):
+    """Unexpected exception inside _filter_ticker → logged, returns None (lines 372-374)."""
+    df = multiindex(make_passing_df())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 2_000_000_000.0, "exchange": "NASDAQ",
+                                        "last_price": 130.0, "last_volume": None}}
+    mock_rsi.side_effect = RuntimeError("unexpected failure mid-filter")
+    results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert results == []

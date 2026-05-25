@@ -135,6 +135,20 @@ def test_scan_market_fallback_tickers_emits_warning(mock_save, mock_screen, mock
 # ── Scan endpoint: cache hit ──────────────────────────────────────────────────
 
 @patch("backend.main._load_cache")
+def test_scan_post_lock_cache_hit(mock_load):
+    """Cache miss before lock, then cache hit inside lock → serves cached results (lines 103-109)."""
+    mock_load.side_effect = [None, ([{"ticker": "AAPL", "price": 150.0}], 500)]
+
+    with client.stream("GET", "/api/scan") as resp:
+        assert resp.status_code == 200
+        events = _collect_sse_events(resp)
+
+    assert any(e.get("status") == "result" for e in events)
+    assert events[-1]["status"] == "complete"
+    assert events[-1].get("from_cache") is True
+
+
+@patch("backend.main._load_cache")
 def test_scan_market_serves_from_cache(mock_load):
     mock_load.return_value = ([{"ticker": "AAPL", "price": 150.0}], 500)
 

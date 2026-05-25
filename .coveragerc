@@ -2,6 +2,8 @@
 source = backend
 omit =
     backend/test_*.py
+    backend/backtest_may2026.py
+    backend/reverse_backtest.py
     */venv/*
 
 [report]

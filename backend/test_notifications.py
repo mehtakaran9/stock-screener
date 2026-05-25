@@ -1,6 +1,8 @@
 import pytest
-from unittest.mock import patch, MagicMock, call
-from backend.notifications import _chip, _build_html_table, send_scan_results_email, _DUMMY_STOCKS
+from unittest.mock import patch, MagicMock, call, PropertyMock
+from backend.notifications import (
+    _chip, _build_html_table, send_scan_results_email, _load_recipients, _DUMMY_STOCKS,
+)
 
 _STOCK = {
     "ticker": "AAPL", "exchange": "NASDAQ",
@@ -192,3 +194,14 @@ def test_send_email_all_attempts_fail(recipients_file):
 def test_dummy_stocks_list_not_empty():
     assert len(_DUMMY_STOCKS) > 0
     assert "ticker" in _DUMMY_STOCKS[0]
+
+
+# ── _load_recipients: uncovered exception branch ──────────────────────────────
+
+def test_load_recipients_permission_error_returns_empty(monkeypatch):
+    """Non-FileNotFoundError exception (e.g. PermissionError) → returns [] (lines 27-29)."""
+    mock_file = MagicMock()
+    mock_file.read_text.side_effect = PermissionError("access denied")
+    monkeypatch.setattr("backend.notifications.RECIPIENTS_FILE", mock_file)
+    result = _load_recipients()
+    assert result == []
