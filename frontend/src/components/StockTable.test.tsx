@@ -207,6 +207,22 @@ describe('StockTable — sorting', () => {
     await waitFor(() => expect(getChangeHeader().textContent).toContain('↑'))
   })
 
+  it('uses 0 as fallback when a stock has an undefined sort key value', () => {
+    // Three stocks so the comparator is called multiple times, exercising both
+    // av ?? 0 and bv ?? 0 null paths (lines 48-49).
+    const nullableStocks = [
+      makeStock({ ticker: 'AAPL', macd_hist: undefined as any }),
+      makeStock({ ticker: 'MSFT', macd_hist: 0.5 }),
+      makeStock({ ticker: 'GOOG', macd_hist: undefined as any }),
+    ]
+    render(<StockTable stocks={nullableStocks} />)
+    const macdHeader = screen.getAllByRole('columnheader').find(h => h.textContent?.includes('MACD'))!
+    fireEvent.click(macdHeader)
+    // MSFT (0.5) sorts above the two undefined-fallback (0) stocks
+    const rows = screen.getAllByRole('link').map(l => l.textContent)
+    expect(rows[0]).toBe('MSFT')
+  })
+
   it('returns to descending after three clicks on same column', async () => {
     render(<StockTable stocks={stocks} />)
     const getChangeHeader = () =>

@@ -264,6 +264,43 @@ describe('App — SSE ordering and post-error re-scan', () => {
   })
 })
 
+describe('App — rate calculation and ETA', () => {
+  it('calculates positive instantRate, updates smoothedRate, and shows a time ETA', async () => {
+    const es = await renderAndWaitForES()
+    const dateSpy = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(2000)
+      .mockReturnValueOnce(3000)
+    act(() => { es.emit({ status: 'progress', total: 100, current: 25, ticker: 'A' }) })
+    act(() => { es.emit({ status: 'progress', total: 100, current: 50, ticker: 'B' }) })
+    act(() => { es.emit({ status: 'progress', total: 100, current: 75, ticker: 'C' }) })
+    dateSpy.mockRestore()
+    expect(screen.getByText(/\dm \ds/)).toBeInTheDocument()
+  })
+
+  it('skips smoothedRate update when instantRate is zero', async () => {
+    const es = await renderAndWaitForES()
+    const dateSpy = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(2000)
+    act(() => { es.emit({ status: 'progress', total: 100, current: 25, ticker: 'A' }) })
+    act(() => { es.emit({ status: 'progress', total: 100, current: 25, ticker: 'A' }) })
+    dateSpy.mockRestore()
+    expect(screen.getByText(/Calculating\.\.\./)).toBeInTheDocument()
+  })
+
+  it('skips inner rate block when time has not advanced between ticks', async () => {
+    const es = await renderAndWaitForES()
+    const dateSpy = vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1000)
+    act(() => { es.emit({ status: 'progress', total: 100, current: 25, ticker: 'A' }) })
+    act(() => { es.emit({ status: 'progress', total: 100, current: 50, ticker: 'B' }) })
+    dateSpy.mockRestore()
+    expect(screen.getByText(/Calculating\.\.\./)).toBeInTheDocument()
+  })
+})
+
 describe('App — re-scan and warning clear', () => {
   it('clears warning banner when a new scan starts', async () => {
     const es = await renderAndWaitForES()

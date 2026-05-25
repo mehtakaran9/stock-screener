@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+echo "Running frontend coverage check..."
+cd "$ROOT/frontend"
+npm run test:coverage
+
+echo "Running backend coverage check..."
+cd "$ROOT"
+if [ -f "venv/bin/activate" ]; then
+  . venv/bin/activate
+fi
+python -m pytest backend/ --cov --cov-report=term-missing
