@@ -5,6 +5,7 @@ omit =
     backend/backtest_may2026.py
     backend/reverse_backtest.py
     backend/bigmove_research.py
+    backend/conviction_research.py
     backend/alt_data.py
     */venv/*
 

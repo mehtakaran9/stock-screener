@@ -4,7 +4,12 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 
-from backend.main import app, _load_cache, _save_cache, _load_cache_v2, _save_cache_v2
+from backend.main import (
+    app,
+    _load_cache, _save_cache,
+    _load_cache_v2, _save_cache_v2,
+    _load_cache_v3, _save_cache_v3,
+)
 
 client = TestClient(app)
 
@@ -292,3 +297,135 @@ def test_save_cache_v2_writes_file(tmp_path, monkeypatch):
 def test_save_cache_v2_handles_write_error(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.main.CACHE_FILE_V2", tmp_path)  # directory → write fails
     _save_cache_v2([], 10)  # must not raise
+
+
+# ── V3 filters endpoint ───────────────────────────────────────────────────────
+
+def test_get_filters_v3_returns_10_items():
+    resp = client.get("/api/filters-v3")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "filters" in data
+    assert len(data["filters"]) == 10
+
+
+# ── V3 scan endpoint: full scan ───────────────────────────────────────────────
+
+@patch("backend.main.get_full_market_tickers")
+@patch("backend.main.screen_stocks_v3")
+@patch("backend.main._save_cache_v3")
+def test_scan_v3_full_scan_streams_events(mock_save, mock_screen, mock_tickers):
+    mock_tickers.return_value = (["AAPL"], True)
+
+    async def fake_screen(tickers):
+        yield {"status": "progress", "current": 1, "ticker": "AAPL"}
+        yield {"ticker": "AAPL", "price": 45.0, "change": -7.0, "conviction_score": 2}
+
+    mock_screen.side_effect = fake_screen
+
+    with client.stream("GET", "/api/scan-v3") as resp:
+        assert resp.status_code == 200
+        events = _collect_sse_events(resp)
+
+    statuses = [e["status"] for e in events]
+    assert "progress" in statuses
+    assert "result" in statuses
+    assert events[-1]["status"] == "complete"
+    mock_save.assert_called_once()
+
+
+@patch("backend.main.get_full_market_tickers")
+@patch("backend.main.screen_stocks_v3")
+@patch("backend.main._save_cache_v3")
+def test_scan_v3_fallback_tickers_emits_warning(mock_save, mock_screen, mock_tickers):
+    mock_tickers.return_value = (["AAPL"], False)
+
+    async def fake_screen(tickers):
+        yield {"status": "progress", "current": 1}
+
+    mock_screen.side_effect = fake_screen
+
+    with client.stream("GET", "/api/scan-v3") as resp:
+        events = _collect_sse_events(resp)
+
+    assert any(e.get("status") == "warning" for e in events)
+
+
+# ── V3 scan endpoint: cache hit ───────────────────────────────────────────────
+
+@patch("backend.main._load_cache_v3")
+def test_scan_v3_serves_from_cache(mock_load):
+    mock_load.return_value = ([{"ticker": "AAPL", "price": 45.0, "conviction_score": 1}], 500)
+
+    with client.stream("GET", "/api/scan-v3") as resp:
+        assert resp.status_code == 200
+        events = _collect_sse_events(resp)
+
+    statuses = [e.get("status") for e in events]
+    assert "result" in statuses
+    assert events[-1]["status"] == "complete"
+    assert events[-1].get("from_cache") is True
+
+
+@patch("backend.main._load_cache_v3")
+def test_scan_v3_post_lock_cache_hit(mock_load):
+    """Cache miss before lock, then hit inside lock → serves cached results."""
+    mock_load.side_effect = [None, ([{"ticker": "AAPL", "price": 45.0}], 500)]
+
+    with client.stream("GET", "/api/scan-v3") as resp:
+        assert resp.status_code == 200
+        events = _collect_sse_events(resp)
+
+    assert any(e.get("status") == "result" for e in events)
+    assert events[-1]["status"] == "complete"
+    assert events[-1].get("from_cache") is True
+
+
+# ── V3 cache helpers ──────────────────────────────────────────────────────────
+
+def test_load_cache_v3_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", tmp_path / "missing.json")
+    assert _load_cache_v3() is None
+
+
+def test_load_cache_v3_expired(tmp_path, monkeypatch):
+    cache = tmp_path / "cache_v3.json"
+    cache.write_text(json.dumps({"timestamp": time.time() - 700, "results": [], "total": 10}))
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", cache)
+    assert _load_cache_v3() is None
+    assert not cache.exists()
+
+
+def test_load_cache_v3_valid_returns_and_keeps_file(tmp_path, monkeypatch):
+    cache = tmp_path / "cache_v3.json"
+    cache.write_text(json.dumps({"timestamp": time.time(), "results": [{"ticker": "C"}], "total": 500}))
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", cache)
+    result = _load_cache_v3()
+    assert result is not None
+    results, total = result
+    assert results == [{"ticker": "C"}]
+    assert total == 500
+    assert cache.exists()
+
+
+def test_load_cache_v3_corrupt_returns_none_and_deletes(tmp_path, monkeypatch):
+    cache = tmp_path / "cache_v3.json"
+    cache.write_text("not {{valid json")
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", cache)
+    assert _load_cache_v3() is None
+    assert not cache.exists()
+
+
+def test_save_cache_v3_writes_file(tmp_path, monkeypatch):
+    cache = tmp_path / "cache_v3.json"
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", cache)
+    _save_cache_v3([{"ticker": "C", "conviction_score": 2}], 500)
+    data = json.loads(cache.read_text())
+    assert data["total"] == 500
+    assert data["results"][0]["ticker"] == "C"
+    assert "timestamp" in data
+
+
+def test_save_cache_v3_handles_write_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("backend.main.CACHE_FILE_V3", tmp_path)  # directory → write fails
+    _save_cache_v3([], 10)  # must not raise

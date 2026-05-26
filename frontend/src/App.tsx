@@ -20,7 +20,7 @@ function App() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
-  const [scanMode, setScanMode] = useState<'recovery' | 'bigmove'>('recovery');
+  const [scanMode, setScanMode] = useState<'recovery' | 'bigmove' | 'conviction'>('recovery');
   const eventSourceRef = useRef<EventSource | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeControllerRef = useRef<AbortController | null>(null);
@@ -36,9 +36,11 @@ function App() {
     };
   }, []);
 
-  const fetchFilters = async (mode: 'recovery' | 'bigmove' = 'recovery') => {
+  const fetchFilters = async (mode: 'recovery' | 'bigmove' | 'conviction' = 'recovery') => {
     try {
-      const endpoint = mode === 'bigmove' ? '/api/filters-v2' : '/api/filters';
+      const endpoint = mode === 'bigmove' ? '/api/filters-v2'
+                     : mode === 'conviction' ? '/api/filters-v3'
+                     : '/api/filters';
       const response = await fetch(`${API_URL}${endpoint}`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
@@ -48,7 +50,7 @@ function App() {
     }
   };
 
-  const switchMode = (mode: 'recovery' | 'bigmove') => {
+  const switchMode = (mode: 'recovery' | 'bigmove' | 'conviction') => {
     if (mode === scanMode) return;
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
@@ -90,7 +92,9 @@ function App() {
     wakeTimerRef.current = null;
     setIsWaking(false);
 
-    const scanEndpoint = scanMode === 'bigmove' ? '/api/scan-v2' : '/api/scan';
+    const scanEndpoint = scanMode === 'bigmove' ? '/api/scan-v2'
+                       : scanMode === 'conviction' ? '/api/scan-v3'
+                       : '/api/scan';
     const es = new EventSource(`${API_URL}${scanEndpoint}`);
     eventSourceRef.current = es;
 
@@ -169,6 +173,10 @@ function App() {
               className={`mode-tab${scanMode === 'bigmove' ? ' active' : ''}`}
               onClick={() => switchMode('bigmove')}
             >Big Move Scan</button>
+            <button
+              className={`mode-tab${scanMode === 'conviction' ? ' active' : ''}`}
+              onClick={() => switchMode('conviction')}
+            >Conviction Scan</button>
           </div>
           <button
             className={`btn-primary ${isScanning ? 'loading' : ''}`}

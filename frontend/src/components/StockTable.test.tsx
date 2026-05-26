@@ -270,4 +270,76 @@ describe('StockTable — row expansion', () => {
     fireEvent.click(row)
     expect(screen.queryByText('Moving Averages')).not.toBeInTheDocument()
   })
+
+  it('does not show Conviction Signals section for v1/v2 stocks (no conviction_score)', () => {
+    render(<StockTable stocks={[makeStock()]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.queryByText('Conviction Signals')).not.toBeInTheDocument()
+  })
+})
+
+describe('StockTable — conviction signals section', () => {
+  const convictionStock = makeStock({
+    insider_buys_30d: 2,
+    earnings_beat_streak: 3,
+    options_call_anomaly: true,
+    conviction_score: 3,
+  })
+
+  it('shows Conviction Signals section when conviction_score is present', () => {
+    render(<StockTable stocks={[convictionStock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('Conviction Signals')).toBeInTheDocument()
+  })
+
+  it('shows insider buys count', () => {
+    render(<StockTable stocks={[convictionStock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    const label = screen.getByText('Insider Buys (30d)')
+    const chip = label.closest('.ma-chip')!
+    expect(chip.querySelector('.ma-chip-value')?.textContent).toBe('2')
+  })
+
+  it('shows earnings beat streak with q suffix', () => {
+    render(<StockTable stocks={[convictionStock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('3q')).toBeInTheDocument()
+  })
+
+  it('shows Yes for options_call_anomaly=true', () => {
+    render(<StockTable stocks={[convictionStock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('Yes')).toBeInTheDocument()
+  })
+
+  it('shows No for options_call_anomaly=false', () => {
+    const stock = makeStock({ conviction_score: 1, insider_buys_30d: 1,
+                              earnings_beat_streak: 0, options_call_anomaly: false })
+    render(<StockTable stocks={[stock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('No')).toBeInTheDocument()
+  })
+
+  it('shows conviction score out of 3', () => {
+    render(<StockTable stocks={[convictionStock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('3 / 3')).toBeInTheDocument()
+  })
+
+  it('shows — for undefined earnings_beat_streak', () => {
+    // insider_buys_30d=0 (shows 0), earnings_beat_streak=undefined (shows —)
+    const stock = makeStock({ conviction_score: 1, insider_buys_30d: 0,
+                              options_call_anomaly: false })
+    render(<StockTable stocks={[stock]} />)
+    const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
+    fireEvent.click(row)
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
 })

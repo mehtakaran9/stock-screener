@@ -405,6 +405,9 @@ tr.selected {
 
 .mode-tab:last-child {
   border-radius: 0 4px 4px 0;
+}
+
+.mode-tab + .mode-tab {
   border-left: none;
 }
 

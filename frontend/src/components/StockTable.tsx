@@ -213,6 +213,30 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
                           </div>
                         </div>
 
+                        {stock.conviction_score !== undefined && (
+                          <div className="expand-section">
+                            <div className="expand-label">Conviction Signals</div>
+                            <div className="ma-grid">
+                              <div className="ma-chip">
+                                <span className="ma-chip-label">Insider Buys (30d)</span>
+                                <span className="ma-chip-value">{stock.insider_buys_30d ?? '—'}</span>
+                              </div>
+                              <div className="ma-chip">
+                                <span className="ma-chip-label">Earnings Beat Streak</span>
+                                <span className="ma-chip-value">{stock.earnings_beat_streak !== undefined ? `${stock.earnings_beat_streak}q` : '—'}</span>
+                              </div>
+                              <div className="ma-chip">
+                                <span className="ma-chip-label">Options Call Anomaly</span>
+                                <span className="ma-chip-value">{stock.options_call_anomaly ? 'Yes' : 'No'}</span>
+                              </div>
+                              <div className="ma-chip">
+                                <span className="ma-chip-label">Conviction Score</span>
+                                <span className="ma-chip-value">{stock.conviction_score} / 3</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="expand-section">
                           <div className="expand-label">Swing Trade Levels</div>
                           <table className="levels-table">

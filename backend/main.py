@@ -14,6 +14,7 @@ from rich.logging import RichHandler
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing")
 from backend.scanner import get_full_market_tickers, screen_stocks, get_active_filters
 from backend.scanner_v2 import screen_stocks_v2, get_active_filters_v2
+from backend.scanner_v3 import screen_stocks_v3, get_active_filters_v3
 
 # Configure logging with Rich
 logging.basicConfig(
@@ -32,6 +33,7 @@ logger = logging.getLogger("main")
 
 CACHE_FILE    = pathlib.Path(__file__).parent / "scan_cache.json"
 CACHE_FILE_V2 = pathlib.Path(__file__).parent / "scan_cache_v2.json"
+CACHE_FILE_V3 = pathlib.Path(__file__).parent / "scan_cache_v3.json"
 CACHE_TTL = 600  # 10 minutes
 
 
@@ -64,6 +66,7 @@ def _save_cache(results: list, total: int) -> None:
 app = FastAPI()
 _scan_lock    = asyncio.Lock()
 _scan_lock_v2 = asyncio.Lock()
+_scan_lock_v3 = asyncio.Lock()
 
 # Enable CORS for React frontend
 _allowed_origins = [
@@ -184,6 +187,57 @@ async def scan_market_v2():
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@app.get("/api/filters-v3")
+async def get_filters_v3():
+    return {"filters": get_active_filters_v3()}
+
+
+@app.get("/api/scan-v3")
+async def scan_market_v3():
+    async def event_generator():
+        cached = await asyncio.to_thread(_load_cache_v3)
+        if cached is not None:
+            results, total = cached
+            logger.info(f"Serving {len(results)} v3 results from cache")
+            yield f"data: {json.dumps({'status': 'progress', 'total': total, 'current': total})}\n\n"
+            for stock in results:
+                yield f"data: {json.dumps({'status': 'result', 'data': stock})}\n\n"
+            yield f"data: {json.dumps({'status': 'complete', 'total': total, 'from_cache': True})}\n\n"
+            return
+
+        async with _scan_lock_v3:
+            cached = await asyncio.to_thread(_load_cache_v3)
+            if cached is not None:
+                results, total = cached
+                logger.info(f"Serving {len(results)} v3 results from cache (post-lock)")
+                yield f"data: {json.dumps({'status': 'progress', 'total': total, 'current': total})}\n\n"
+                for stock in results:
+                    yield f"data: {json.dumps({'status': 'result', 'data': stock})}\n\n"
+                yield f"data: {json.dumps({'status': 'complete', 'total': total, 'from_cache': True})}\n\n"
+                return
+
+            tickers, is_full = await asyncio.to_thread(get_full_market_tickers)
+            if not is_full:
+                yield f"data: {json.dumps({'status': 'warning', 'message': 'S&P 500 list unavailable; scanning fallback tickers only.'})}\n\n"
+            target_tickers = tickers[:500]
+
+            yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': 0})}\n\n"
+
+            results: list = []
+            async for update in screen_stocks_v3(target_tickers):
+                if isinstance(update, dict):
+                    if update.get("status") == "progress":
+                        yield f"data: {json.dumps({'status': 'progress', 'total': len(target_tickers), 'current': update['current'], 'ticker': update.get('ticker')})}\n\n"
+                    else:
+                        results.append(update)
+                        yield f"data: {json.dumps({'status': 'result', 'data': update})}\n\n"
+
+            await asyncio.to_thread(_save_cache_v3, results, len(target_tickers))
+        yield f"data: {json.dumps({'status': 'complete', 'total': len(target_tickers)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 def _load_cache_v2() -> tuple[list, int] | None:
     if not CACHE_FILE_V2.exists():
         return None
@@ -207,6 +261,31 @@ def _save_cache_v2(results: list, total: int) -> None:
         logger.info(f"V2 scan cache written ({len(results)} matches, expires in {CACHE_TTL}s)")
     except Exception as e:
         logger.warning(f"V2 cache write error: {e}")
+
+
+def _load_cache_v3() -> tuple[list, int] | None:
+    if not CACHE_FILE_V3.exists():
+        return None
+    try:
+        with CACHE_FILE_V3.open() as f:
+            data = json.load(f)
+        if time.time() - data["timestamp"] > CACHE_TTL:
+            CACHE_FILE_V3.unlink(missing_ok=True)
+            return None
+        return data["results"], data["total"]
+    except Exception as e:
+        logger.warning(f"V3 cache read error: {e}")
+        CACHE_FILE_V3.unlink(missing_ok=True)
+        return None
+
+
+def _save_cache_v3(results: list, total: int) -> None:
+    try:
+        with CACHE_FILE_V3.open("w") as f:
+            json.dump({"timestamp": time.time(), "results": results, "total": total}, f)
+        logger.info(f"V3 scan cache written ({len(results)} matches, expires in {CACHE_TTL}s)")
+    except Exception as e:
+        logger.warning(f"V3 cache write error: {e}")
 
 
 if __name__ == "__main__":

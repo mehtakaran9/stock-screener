@@ -26,4 +26,8 @@ export interface Stock {
   stop1: number;
   stop2: number;
   stop3: number;
+  insider_buys_30d?: number;
+  earnings_beat_streak?: number;
+  options_call_anomaly?: boolean;
+  conviction_score?: number;
 }
