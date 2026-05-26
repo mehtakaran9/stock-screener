@@ -18,11 +18,16 @@
   </a>
 </p>
 
-A real-time technical stock screener that identifies oversold recovery setups across the S&P 500 universe. Scan results stream live to the browser via Server-Sent Events and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
+A real-time technical stock screener with **two complementary strategies** for the S&P 500 universe. Scan results stream live to the browser via SSE and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
-**Strategy: oversold mean-reversion** — buy panic selloffs in large-cap stocks that are still in structural uptrends.
+Switch strategies with the **Recovery Scan / Big Move Scan** tab in the UI:
 
-> **Backtest results** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
+| Strategy | Target setup | Key signals | SMA200 gate | Backtest |
+|---|---|---|---|---|
+| **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 67% 3-month win rate · +7.7% avg |
+| **Big Move Scan** (v2) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
+
+> **Recovery Scan backtest** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
 >
 > | Metric | Value |
 > |--------|-------|
@@ -30,6 +35,16 @@ A real-time technical stock screener that identifies oversold recovery setups ac
 > | Average 3-month return | **+7.7%** |
 > | Signals per year | ~26 |
 > | Recommended hold | 63 trading days (3 months) |
+
+> **Big Move Scan backtest** · 10-year S&P 500 · 1.27M ticker-days · `bigmove_research.py`
+>
+> | Signal combo | Lift | Precision | Avg return |
+> |---|---|---|---|
+> | Day < −5% | 14.91× | 6.52% | +37.1% |
+> | Price < 70% SMA200 | 10.17× | 4.45% | +37.0% |
+> | **Day < −5% + Price < 70% SMA200** | **33.32×** | **14.56%** | **+39.3%** |
+>
+> Lift = precision ÷ base rate (0.437% — 1-in-228 chance of 30%+ in 42 days). Run: `python3 -m backend.bigmove_research`
 
 ---
 
@@ -51,6 +66,25 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | 10 | Sector | **Excludes Health Care, Comm. Services, Utilities** | Empirically −10 to −17pp win rate on panic-selloff setups |
 
 Tickers that pass all 10 filters are surfaced in the UI as potential recovery trade candidates and emailed every 15 minutes from 11 AM to 4 PM ET on NYSE trading days. Recommended hold: **63 trading days (3 months)**.
+
+### Big Move Scanner (v2) — extreme dislocation recovery
+
+Targets stocks already in severe distress (price < 70% of SMA200) that then have a further panic selloff day. The SMA200 gate is the **inverse** of the recovery screener — it finds stocks the recovery screener would reject. Both strategies share the same day < −5% trigger but serve opposite structural regimes.
+
+| # | Filter | Threshold | Lift |
+|---|--------|-----------|------|
+| 1 | Day change | **< −5%** | 14.91× alone |
+| 2 | Market cap | **> $1 B** | liquidity floor |
+| 3 | Price | **> $5** | no penny stocks |
+| 4 | Volume | **> 500 K shares** | participation check |
+| 5 | RVOL | **> 1.5×** | volume confirmation |
+| 6 | RSI (14) | **< 35** | oversold |
+| 7 | SMA 200 | **Price < 70% of SMA200** | extreme dislocation — inverted from v1 |
+| 8 | SMA 50 | **Price < 90% of SMA50** | below short-term MA too |
+
+Entry and stop levels follow the same 3-scenario structure as v1 (wider stops: 1.5× and 2.5× ATR instead of 1.0× and 0.5×, reflecting higher volatility of distressed names). Results stream from `/api/scan-v2`; active filters load from `/api/filters-v2`.
+
+Run the research backtest: `python3 -m backend.bigmove_research --window 42 --min-return 0.30`
 
 Each result also includes computed entry / stop levels for the snap-back trade:
 
@@ -96,6 +130,8 @@ Every matched stock returns the following fields from `/api/scan`:
 | `entry1/2/3` | Three recovery entry price levels | — |
 | `stop1/2/3` | Corresponding stop loss levels | — |
 
+> **`/api/scan-v2` returns the same 28 fields** with identical names and types. Filter thresholds differ (RSI < 35, RVOL > 1.5×, SMA200 gate inverted) but the JSON shape is identical — `StockTable` renders both without any changes.
+
 ---
 
 ## Architecture
@@ -109,11 +145,14 @@ flowchart LR
     end
 
     subgraph render ["Render · FastAPI + Uvicorn"]
-        api["GET /api/scan · GET /api/filters"]
-        scanner["scanner.py · asyncio\nparallel chunks · Semaphore(5) · Queue"]
-        cache[("scan_cache.json · 10-min TTL")]
+        api["GET /api/scan · /api/filters\nGET /api/scan-v2 · /api/filters-v2"]
+        scanner["scanner.py · recovery screener\nasyncio · Semaphore(5) · Queue"]
+        scanner_v2["scanner_v2.py · big move screener\nasyncio · Semaphore(5) · Queue"]
+        cache[("scan_cache.json\nscan_cache_v2.json · 10-min TTL")]
         api --> scanner
+        api --> scanner_v2
         scanner <--> cache
+        scanner_v2 <--> cache
     end
 
     subgraph gha ["GitHub Actions"]
@@ -140,7 +179,7 @@ flowchart LR
 
 - **GitHub Actions** owns the scheduled scan and email. `keepalive.yml` pings Render 10 minutes before the daily scan to avoid cold-start delays. `daily-scan.yml` runs four cron entries (EDT + EST) and guards against duplicate fires on DST transition weeks via `is_nyse_trading_day()`. Recipients are stored in the `EMAIL_LIST` Actions variable and written to `backend/recipients.txt` at runtime.
 - **Render** hosts the FastAPI backend (512 MB RAM; sleeps after 15 min of inactivity). The keepalive ping ensures it is warm when the daily scan runs.
-- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. `VITE_API_URL` wires up the Render service URL.
+- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. Two SSE endpoints exist: `/api/scan` for the recovery screener and `/api/scan-v2` for the big move screener; each has its own 10-minute result cache. `VITE_API_URL` wires up the Render service URL.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
 
 ---

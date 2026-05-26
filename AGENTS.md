@@ -1,9 +1,9 @@
 # AGENTS.md - Stock Screener Project
 
 ## What
-This project is a **Technical Stock Screener** that identifies high-probability trading setups based on momentum and trend-following criteria. It scans the US stock market (S&P 500 constituents by default) and filters for stocks that are breaking out while maintaining structural strength.
+This project is a **Technical Stock Screener** with two complementary strategies for the S&P 500 universe. A **Recovery Scan / Big Move Scan** tab in the UI lets users switch between them. Both strategies share identical SSE streaming, caching, and result shapes.
 
-### Core Filters (10 total, applied in sequence):
+### Recovery Scan — Core Filters (10 total, `/api/scan`)
 
 Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
 Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **67% 3-month win rate, +7.7% avg return**.
@@ -17,6 +17,20 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
 - **Deep SMA50 discount**: Price ≤ 90% of SMA50 (+6.1pp win rate; validated N=52, 5-yr backtest)
 - **Sector exclusion**: Excludes Health Care, Communication Services, Utilities (+2.9pp; validated N=78)
 
+### Big Move Scanner — Core Filters (8 total, `/api/scan-v2`)
+
+Strategy: **extreme dislocation recovery** — stocks already deeply below SMA200 that have an additional panic selloff day.
+Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M ticker-days): **33.32× lift, 14.56% precision for 30%+ moves in 42 trading days**.
+
+- **Panic selloff**: Day Change < −5%
+- **Liquidity**: Market Cap > $1B, Price > $5, Volume > 500K
+- **Volume confirmation**: RVOL > 1.5×
+- **Oversold**: RSI(14) < 35
+- **Extreme dislocation (SMA200)**: Price **< 70% of SMA200** — inverted from Recovery Scan's > 75%
+- **Below SMA50**: Price < 90% of SMA50
+
+The two SMA200 gates are mutually exclusive: a stock cannot pass both filters simultaneously, making the strategies fully complementary.
+
 ## Why
 - **FastAPI Backend**: Chosen for its high performance and native support for asynchronous streaming (SSE), allowing users to see results in real-time without waiting for a full market scan.
 - **React + Vite Frontend**: Provides a modern, responsive developer experience.
@@ -25,16 +39,18 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
 
 ## How
 ### Architecture:
-1.  **Backend Scanning Engine (`backend/scanner.py`)**: 
-    - Fetches S&P 500 constituents from a public CSV; falls back to a 10-ticker list if unavailable.
-    - Uses `yfinance` to download 2 years of daily OHLCV data in chunks of 50 tickers.
-    - Applies the 10 filters sequentially using `pandas` and `pandas-ta-classic`.
-2.  **Streaming API (`backend/main.py`)**: 
-    - Exposes `/api/scan` — a `StreamingResponse` (SSE) endpoint that pushes progress and result events to the frontend as stocks are identified. Results are cached for 10 minutes (`backend/scan_cache.json`). A module-level `asyncio.Lock` ensures only one full scan runs at a time.
-    - Exposes `/api/filters` — returns the active filter list for display in the UI.
+1.  **Backend Scanning Engines (`backend/scanner.py`, `backend/scanner_v2.py`)**:
+    - `scanner.py` (Recovery Scan): Fetches S&P 500 constituents from a public CSV (10-ticker fallback), downloads 2 years of OHLCV data in chunks of 50 via `yfinance`, applies the 10-filter recovery pipeline.
+    - `scanner_v2.py` (Big Move Scan): Identical async generator / semaphore / queue structure. Applies the 8-filter extreme dislocation pipeline from `CONFIG_V2`. Research source: `backend/bigmove_research.py` (10-year backtest CLI — run with `python3 -m backend.bigmove_research`).
+2.  **Streaming API (`backend/main.py`)**:
+    - Exposes `/api/scan` — SSE endpoint for recovery screener. Results cached to `backend/scan_cache.json` (10 min TTL). A module-level `asyncio.Lock` prevents concurrent full scans.
+    - Exposes `/api/filters` — returns the 10 active recovery filter descriptions.
+    - Exposes `/api/scan-v2` — identical SSE pattern using `screen_stocks_v2()`. Results cached to `backend/scan_cache_v2.json` (10 min TTL, separate lock).
+    - Exposes `/api/filters-v2` — returns the 8 active big-move filter descriptions.
 3.  **Frontend Dashboard (`frontend/src/App.tsx`)**:
+    - A **Recovery Scan / Big Move Scan** tab toggle (`switchMode()`) closes any in-progress EventSource, clears results, fetches the appropriate filter list, and routes `startScan()` to `/api/scan` or `/api/scan-v2`.
     - Consumes the SSE stream and updates state reactively.
-    - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row.
+    - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row. Both scan modes return the same 28-field JSON shape — `StockTable` is mode-agnostic.
     - Shows an amber warning banner if the S&P 500 CSV was unavailable and fallback tickers were used.
 4.  **GitHub Actions scan + email (`backend/run_scan.py`, `backend/notifications.py`)**:
     - `run_scan.py` runs as a GitHub Actions cron job (every 15 min, 11 AM–4 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
