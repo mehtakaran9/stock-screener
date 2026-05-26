@@ -381,3 +381,39 @@ tr.selected {
   font-size: 0.75rem;
   color: var(--success);
 }
+
+/* ── Scan mode tabs ── */
+.scan-mode-tabs {
+  display: flex;
+}
+
+.mode-tab {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.mode-tab:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.mode-tab:last-child {
+  border-radius: 0 4px 4px 0;
+  border-left: none;
+}
+
+.mode-tab:hover:not(.active) {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.mode-tab.active {
+  background-color: rgba(187, 134, 252, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
+}

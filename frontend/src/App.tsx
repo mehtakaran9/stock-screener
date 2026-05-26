@@ -20,6 +20,7 @@ function App() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
+  const [scanMode, setScanMode] = useState<'recovery' | 'bigmove'>('recovery');
   const eventSourceRef = useRef<EventSource | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeControllerRef = useRef<AbortController | null>(null);
@@ -35,15 +36,28 @@ function App() {
     };
   }, []);
 
-  const fetchFilters = async () => {
+  const fetchFilters = async (mode: 'recovery' | 'bigmove' = 'recovery') => {
     try {
-      const response = await fetch(`${API_URL}/api/filters`);
+      const endpoint = mode === 'bigmove' ? '/api/filters-v2' : '/api/filters';
+      const response = await fetch(`${API_URL}${endpoint}`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setActiveFilters(data.filters);
     } catch (error) {
       console.error('Error fetching filters:', error);
     }
+  };
+
+  const switchMode = (mode: 'recovery' | 'bigmove') => {
+    if (mode === scanMode) return;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    setIsScanning(false);
+    setStocks([]);
+    setScanComplete(null);
+    setScanWarning(null);
+    setScanMode(mode);
+    fetchFilters(mode);
   };
 
   const startScan = async () => {
@@ -76,7 +90,8 @@ function App() {
     wakeTimerRef.current = null;
     setIsWaking(false);
 
-    const es = new EventSource(`${API_URL}/api/scan`);
+    const scanEndpoint = scanMode === 'bigmove' ? '/api/scan-v2' : '/api/scan';
+    const es = new EventSource(`${API_URL}${scanEndpoint}`);
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {
@@ -145,6 +160,16 @@ function App() {
           <h1>StockScreener Pro</h1>
         </div>
         <div className="controls">
+          <div className="scan-mode-tabs">
+            <button
+              className={`mode-tab${scanMode === 'recovery' ? ' active' : ''}`}
+              onClick={() => switchMode('recovery')}
+            >Recovery Scan</button>
+            <button
+              className={`mode-tab${scanMode === 'bigmove' ? ' active' : ''}`}
+              onClick={() => switchMode('bigmove')}
+            >Big Move Scan</button>
+          </div>
           <button
             className={`btn-primary ${isScanning ? 'loading' : ''}`}
             onClick={startScan}

@@ -5,11 +5,13 @@ import App from './App'
 // ── Mock EventSource ─────────────────────────────────────────────────────────
 class MockEventSource {
   static instances: MockEventSource[] = []
+  url: string
   onmessage: ((event: MessageEvent) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   close = vi.fn()
 
-  constructor(_url: string) {
+  constructor(url: string) {
+    this.url = url
     MockEventSource.instances.push(this)
     // Simulate real EventSource: closing clears handlers so late events are dropped
     this.close.mockImplementation(() => {
@@ -298,6 +300,56 @@ describe('App — rate calculation and ETA', () => {
     act(() => { es.emit({ status: 'progress', total: 100, current: 50, ticker: 'B' }) })
     dateSpy.mockRestore()
     expect(screen.getByText(/Calculating\.\.\./)).toBeInTheDocument()
+  })
+})
+
+describe('App — scan mode tabs', () => {
+  it('renders both scan mode tab buttons', () => {
+    render(<App />)
+    expect(screen.getByRole('button', { name: /recovery scan/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /big move scan/i })).toBeInTheDocument()
+  })
+
+  it('Recovery Scan tab is active by default', () => {
+    render(<App />)
+    expect(screen.getByRole('button', { name: /recovery scan/i })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: /big move scan/i })).not.toHaveClass('active')
+  })
+
+  it('clicking the active tab is a no-op', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: /recovery scan/i }))
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
+  it('switching to Big Move mode clears results and marks that tab active', async () => {
+    const es = await renderAndWaitForES()
+    act(() => {
+      es.emit(stockPayload('AAPL'))
+      es.emit({ status: 'complete', total: 100 })
+    })
+    await waitFor(() => expect(screen.getByRole('link', { name: 'AAPL' })).toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('button', { name: /big move scan/i }))
+    expect(screen.queryByRole('link', { name: 'AAPL' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /big move scan/i })).toHaveClass('active')
+    expect(screen.getByRole('button', { name: /recovery scan/i })).not.toHaveClass('active')
+  })
+
+  it('Big Move mode creates EventSource for /api/scan-v2', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: /big move scan/i }))
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    expect(MockEventSource.instances[0].url).toContain('/api/scan-v2')
+  })
+
+  it('Recovery mode creates EventSource for /api/scan', async () => {
+    render(<App />)
+    await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    expect(MockEventSource.instances[0].url).toContain('/api/scan')
+    expect(MockEventSource.instances[0].url).not.toContain('/api/scan-v2')
   })
 })
 
