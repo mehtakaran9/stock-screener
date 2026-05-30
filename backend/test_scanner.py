@@ -29,7 +29,8 @@ def make_passing_df(days=300, final_price=130.0, prev_price=145.0, volume=2_000_
     """Recovery setup: strong uptrend (100→200) then panic crash.
 
     Background vol = 300K, last bar = volume (default 2M).
-    RVOL ≈ (19×300K + 2M)/20 = 385K → 2M/385K ≈ 5.2× > 3.5 ✓
+    RVOL baseline excludes the current bar (shift(1)): avg of prior 20 bars = 300K
+    → 2M/300K ≈ 6.7× > 3.5 ✓
     Day change = (130 − 145)/145 = −10.3% < −5% ✓
     SMA200 ≈ mean(100..200) ≈ 166; 130 > 0.75×166 = 124 ✓
     SMA50 ≈ 189 (last 50 bars of 100→200 trend); 130/189 ≈ 0.69 < 0.90 ✓ (NEW)
@@ -340,7 +341,7 @@ def test_screen_stocks_fails_sma200(mock_rsi, mock_caps, mock_dl):
     prices[-2] = 110.0
     BACKGROUND_VOL = 300_000
     vols = np.full(days, BACKGROUND_VOL, dtype=float)
-    vols[-1] = 3_000_000.0   # RVOL ≈ 5.5× > 3.5 ✓
+    vols[-1] = 3_000_000.0   # RVOL = 3M/300K = 10× > 3.5 ✓
     df = pd.DataFrame({
         "Open": prices * 1.01, "High": prices * 1.02,
         "Low": prices * 0.97, "Close": prices, "Volume": vols,
@@ -501,7 +502,7 @@ def test_filter_ticker_rvol_filter(mock_ema, mock_rsi):
     """Ticker is rejected when RVOL < 3.5× (uniform volume → RVOL = 1.0)."""
     mock_ema.side_effect = mock_ema_side_effect
     df = make_passing_df()
-    df['Volume'] = 600_000.0  # uniform → rolling avg = last bar → RVOL = 1.0 < 3.5
+    df['Volume'] = 600_000.0  # uniform → prior-20 avg = 600K → RVOL = 1.0 < 3.5
     result = _filter_ticker('AAPL', df, _make_mc())
     assert result is None
 
@@ -532,7 +533,7 @@ def test_screen_stocks_fails_sma50(mock_ema, mock_rsi, mock_caps, mock_dl):
     prices[-1] = 150.0  # not used by _filter_ticker — overridden by fast_info last_price
     BACKGROUND_VOL = 300_000
     vols = np.full(days, BACKGROUND_VOL, dtype=float)
-    vols[-1] = 2_000_000.0  # RVOL ≈ 5.2× ✓
+    vols[-1] = 2_000_000.0  # RVOL = 2M/300K ≈ 6.7× ✓
     df = pd.DataFrame({
         "Open": prices * 1.01, "High": prices * 1.02,
         "Low":  prices * 0.97, "Close": prices, "Volume": vols,

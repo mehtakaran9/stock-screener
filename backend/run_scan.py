@@ -28,10 +28,17 @@ logger = logging.getLogger("run_scan")
 
 
 def is_nyse_trading_day() -> bool:
-    nyse = mcal.get_calendar('NYSE')
-    today_et = datetime.now(pytz.timezone('US/Eastern')).date()
-    schedule = nyse.schedule(start_date=today_et.isoformat(), end_date=today_et.isoformat())
-    return not schedule.empty
+    # Wrapped so a transient failure (network/data error building the NYSE
+    # calendar) doesn't crash the scheduled job. On error, return False so the
+    # scan is skipped rather than running on a possibly non-trading day.
+    try:
+        nyse = mcal.get_calendar('NYSE')
+        today_et = datetime.now(pytz.timezone('US/Eastern')).date()
+        schedule = nyse.schedule(start_date=today_et.isoformat(), end_date=today_et.isoformat())
+        return not schedule.empty
+    except Exception as e:
+        logger.warning(f"NYSE trading-day check failed ({e}); skipping scan to be safe")
+        return False
 
 
 async def main() -> int:

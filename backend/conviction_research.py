@@ -137,9 +137,13 @@ def _find_conviction_moves(
                 is_win = bool(fwd.iloc[idx]) if idx < len(fwd) else False
                 fwd_ret = None
                 if is_win:
-                    future_closes = df["Close"].iloc[idx + 1 : idx + 1 + window]
-                    if len(future_closes) >= 1:
-                        fwd_ret = float((future_closes.max() - df["Close"].iloc[idx]) / df["Close"].iloc[idx] * 100)
+                    # Fixed-horizon return at the same `window` used by
+                    # _first_winning_days (close.shift(-window)) — NOT the
+                    # best-case max over the window, which would overstate the
+                    # achievable return. The loop bound guarantees idx+window is valid.
+                    entry_close = df["Close"].iloc[idx]
+                    exit_close  = df["Close"].iloc[idx + window]
+                    fwd_ret = float((exit_close - entry_close) / entry_close * 100)
 
                 atrc = float(df["atr_candle_ratio"].iloc[idx]) if "atr_candle_ratio" in df.columns else np.nan
 

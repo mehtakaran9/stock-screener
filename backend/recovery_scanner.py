@@ -37,15 +37,17 @@ logger = logging.getLogger(__name__)
 #
 #   BEST CONFIG (highest 3-month win rate across 18 threshold combinations):
 #     RSI < 25  |  day change < -5%  |  RVOL > 3.5×  |  SMA200 > 75%  |  EMA stack
-#     3-month win rate : 68.0%  (N=26 signals, ~1 per trading day)
-#     3-month avg ret  : +6.7%
-#     2-week  win rate : 61.5%
+#     3-month win rate : 67.9%  (N=29 signals, ~1 per trading day)
+#     3-month avg ret  : +7.1%
+#     2-week  win rate : 58.6%
 #     2-week  avg ret  : +1.6%
+#   (post-RVOL-fix rerun; this is the config below. A stricter variant
+#    RSI<25 | day<-7% | RVOL>4× tops the sweep at 72.7% 3mo win, N=23.)
 #
-#   HONEST CEILING: 70% 3-month accuracy is the outer limit for S&P 500 large caps
-#   using purely technical filters. No combination in 18 tested configs exceeded 68%.
-#   The 40%+ average return target is not achievable for this universe — the best
-#   config returns +6.7% on average over 3 months (individual winners can reach 47%+,
+#   HONEST CEILING: ~73% 3-month accuracy is the outer limit for S&P 500 large caps
+#   using purely technical filters. The 40%+ average return target is not achievable
+#   for this universe — the shipped config returns +7.1% on average over 3 months
+#   (individual winners can reach 47%+,
 #   but the AVERAGE is capped by the distribution of large-cap recovery moves).
 #
 RECOVERY_CONFIG = {
@@ -69,7 +71,7 @@ EXCLUDED_SECTORS: frozenset[str] = frozenset({
     "Utilities",
 })
 
-HOLD_DAYS = 63   # 3-month hold — backtested 67% win rate, +7.7% avg return
+HOLD_DAYS = 63   # 3-month hold — backtested 67.9% win rate, +7.1% avg return (RSI<25 config)
 
 
 # ─── 1. Universe ──────────────────────────────────────────────────────────────
@@ -326,7 +328,7 @@ def main() -> None:
         ))
 
     print(f"\n  {len(results)} match(es) | recommended hold: {HOLD_DAYS} trading days (≈3 months)")
-    print(f"  Backtested: ~67% 3-month win rate, +7.7% avg return (5-year S&P 500)")
+    print(f"  Backtested: ~67.9% 3-month win rate, +7.1% avg return (5-year S&P 500)")
     print(f"  Calibrate thresholds: python3 -m backend.reverse_backtest --validate-recovery\n")
 
 

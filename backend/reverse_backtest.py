@@ -80,7 +80,9 @@ def _compute_signals(df: pd.DataFrame) -> pd.DataFrame | None:
 
     # ── Basic daily stats ────────────────────────────────────────────────
     day_chg  = close.pct_change() * 100
-    vol20    = volume.rolling(20).mean()
+    # Baseline excludes the current bar (shift(1)) so RVOL compares each day's
+    # volume against the prior 20 completed days — matches the live scanners.
+    vol20    = volume.shift(1).rolling(20).mean()
     rvol     = volume / vol20
 
     # ── Trend indicators ─────────────────────────────────────────────────

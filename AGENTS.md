@@ -6,7 +6,7 @@ This project is a **Technical Stock Screener** with two complementary strategies
 ### Recovery Scan — Core Filters (10 total, `/api/scan`)
 
 Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
-Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **67% 3-month win rate, +7.7% avg return**.
+Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **70.5% 3-month win rate, +8.6% avg return** (full config, N=44). ⚠️ These figures carry **survivorship bias** — the backtest uses the *current* S&P 500 list applied to historical data (delisted/removed names excluded), so treat them as upper bounds. RVOL is measured against the prior 20 completed days (excludes the signal day).
 
 - **Panic selloff**: Day Change < −5% (entry signal — the opposite of momentum)
 - **Liquidity**: Market Cap > $1B, Price > $5, Daily Volume > 500K shares
@@ -20,7 +20,7 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
 ### Big Move Scanner — Core Filters (8 total, `/api/scan-v2`)
 
 Strategy: **extreme dislocation recovery** — stocks already deeply below SMA200 that have an additional panic selloff day.
-Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M ticker-days): **33.32× lift, 14.56% precision for 30%+ moves in 42 trading days**.
+Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M ticker-days): **33.32× lift, 14.56% precision for 30%+ moves in 42 trading days**. ⚠️ Same **survivorship-bias** caveat as the Recovery Scan — current-constituents-only universe inflates lift/precision; treat as upper bounds.
 
 - **Panic selloff**: Day Change < −5%
 - **Liquidity**: Market Cap > $1B, Price > $5, Volume > 500K

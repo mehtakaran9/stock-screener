@@ -142,7 +142,10 @@ def _filter_ticker_v3_technical(
             return None
 
         # ── Filter 4: RVOL > 3.5× ─────────────────────────────────────────────
-        avg_vol_20 = float(df["Volume"].rolling(window=20).mean().iloc[-1])
+        # Baseline excludes the current bar (shift(1)) so RVOL compares today's
+        # volume against the prior 20 completed days, not a window already
+        # containing today's spike.
+        avg_vol_20 = float(df["Volume"].shift(1).rolling(window=20).mean().iloc[-1])
         vol_ratio  = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
         if vol_ratio < CONFIG_V3["MIN_RVOL"]:
             logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")

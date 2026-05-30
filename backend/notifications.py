@@ -310,14 +310,15 @@ def send_scan_results_email(stocks_data: list, is_test: bool = False):
             with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
-                for recipient in recipients:
+                for i, recipient in enumerate(recipients, 1):
                     msg = MIMEMultipart()
                     msg['Subject'] = subject
                     msg['From'] = smtp_user
                     msg['To'] = recipient
                     msg.attach(MIMEText(html_content, 'html'))
                     server.send_message(msg)
-                    logger.info("Email sent to recipient")
+                    logger.info(f"Email sent ({i}/{len(recipients)})")
+            logger.info(f"All {len(recipients)} email(s) sent successfully")
             return
         except Exception as e:
             if attempt < 2:

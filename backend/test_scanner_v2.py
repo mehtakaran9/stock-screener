@@ -26,7 +26,7 @@ def make_passing_df_v2(days=300, final_price=55.0, prev_price=60.0, volume=2_000
     SMA200 ≈ mean(200..60) ≈ 130; 55 < 0.70×130 = 91   → v2 SMA200 filter passes ✓
     SMA50 ≈ last-50 bars of decline ≈ 65; 55/65 ≈ 0.85 < 0.90 ✓
     Day change = (55-60)/60 = -8.3% < -5%  ✓
-    RVOL: background 300K, last bar 2M → ≈ 5.2× > 1.5   ✓
+    RVOL: prior-20 baseline excludes current bar → 2M/300K ≈ 6.7× > 1.5   ✓
     RSI: mocked to < 35 in tests that need it.
     """
     dates = pd.date_range(end="2024-01-01", periods=days)

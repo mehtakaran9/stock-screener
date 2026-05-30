@@ -75,7 +75,8 @@ def get_active_filters_v2() -> list[str]:
 
 def _filter_ticker_v2(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict | None:
     """
-    Extreme dislocation screener — 7 filters, calibrated from 10-year backtest.
+    Extreme dislocation screener — 7 per-ticker gates here (the UI/`get_active_filters_v2`
+    lists 8 criteria: market-cap and price are split). Calibrated from a 10-year backtest.
     Finds stocks deeply below SMA200 that had a further panic selloff today.
     Backtest: 33.32× lift, ~15% precision for 30%+ in 42 days (10-yr S&P 500).
     """
@@ -131,7 +132,10 @@ def _filter_ticker_v2(ticker: str, data: pd.DataFrame, market_caps: dict) -> dic
             return None
 
         # ── Filter 4: RVOL > 1.5× ─────────────────────────────────────────────
-        avg_vol_20 = float(df["Volume"].rolling(window=20).mean().iloc[-1])
+        # Baseline excludes the current bar (shift(1)) so RVOL compares today's
+        # volume against the prior 20 completed days, not a window already
+        # containing today's spike.
+        avg_vol_20 = float(df["Volume"].shift(1).rolling(window=20).mean().iloc[-1])
         vol_ratio  = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
         if vol_ratio < CONFIG_V2["MIN_RVOL"]:
             logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")

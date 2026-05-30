@@ -41,7 +41,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # Screening Parameters — calibrated from 5-year S&P 500 reverse backtest (2021–2026)
 #
 # Strategy: oversold mean-reversion (recovery) — buy panic selloffs in uptrending large caps
-# Backtest result: 68% 3-month win rate, +6.7% avg return (666K ticker-days tested)
+# Backtest result: 70.5% 3-month win rate, +8.6% avg return (full config, N=44; 666K ticker-days tested)
 # Validated via: python3 -m backend.reverse_backtest --validate-recovery
 #
 CONFIG = {
@@ -200,9 +200,13 @@ def get_full_market_tickers() -> tuple[list[str], bool]:
 
 def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict | None:
     """
-    Recovery / mean-reversion screener — 8 filters, calibrated from 5-year backtest.
+    Recovery / mean-reversion screener — 8 per-ticker gates here (the UI/`get_active_filters`
+    lists 10 criteria: market-cap and price are split, plus a sector exclusion applied at the
+    ticker-list level in get_full_market_tickers()). Calibrated from a 5-year backtest.
     Finds large-cap stocks in macro uptrends that had a panic selloff today.
-    Backtest: 68% 3-month win rate, +6.7% avg return (5-yr S&P 500, 666K ticker-days).
+    Backtest (post-RVOL-fix rerun): 70.5% 3-month win rate, +8.6% avg return for the full
+    config (price ≤ 90% SMA50 + sector exclusion), N=44, 5-yr S&P 500. Survivorship-biased
+    upper bound — see README "Survivorship bias" note.
     """
     try:
         if isinstance(data.columns, pd.MultiIndex):
@@ -257,7 +261,10 @@ def _filter_ticker(ticker: str, data: pd.DataFrame, market_caps: dict) -> dict |
         logger.debug(f"{ticker} PASSED base filters: Price={price}, MC={market_cap}, Vol={volume}")
 
         # ── Filter 4: RVOL > 3.5× ────────────────────────────────────────────
-        avg_vol_20 = float(df['Volume'].rolling(window=20).mean().iloc[-1])
+        # Baseline excludes the current bar (shift(1)) so RVOL compares today's
+        # volume against the *prior* 20 completed days, not a window that already
+        # contains today's spike.
+        avg_vol_20 = float(df['Volume'].shift(1).rolling(window=20).mean().iloc[-1])
         vol_ratio  = round(volume / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
         if vol_ratio < CONFIG["MIN_RVOL"]:
             logger.debug(f"{ticker} failed RVOL: {vol_ratio:.2f}")

@@ -23,6 +23,13 @@ def test_is_nyse_trading_day_false():
         assert is_nyse_trading_day() is False
 
 
+def test_is_nyse_trading_day_handles_error():
+    """Transient calendar/network failure → return False (skip scan), not crash."""
+    with patch("backend.run_scan.mcal") as mock_mcal:
+        mock_mcal.get_calendar.side_effect = ConnectionError("network down")
+        assert is_nyse_trading_day() is False
+
+
 # ── main() ────────────────────────────────────────────────────────────────────
 
 async def test_main_skip_scan_send_test_email():

@@ -28,7 +28,7 @@ def make_passing_df_v3(days=300, final_price=55.0, prev_price=60.0, volume=2_000
     SMA200 ≈ 130; 55 / 130 ≈ 0.42 < 0.70   → v3 SMA200 gate passes ✓
     SMA50 ≈ 65; 55 / 65 ≈ 0.85 < 0.90        → v3 SMA50 gate passes ✓
     Day change = (55-60)/60 = -8.3% < -5%     ✓
-    RVOL: background 300K, last bar 2M → ≈ 5.2× > 3.5   ✓
+    RVOL: prior-20 baseline excludes current bar → 2M/300K ≈ 6.7× > 3.5   ✓
     Open[-1] = prev_price (60) → candle body = |55-60| = 5 (ATR mocked to 3 → ratio ≈ 1.67) ✓
     RSI: mocked to < 25 in tests that need it.
     """

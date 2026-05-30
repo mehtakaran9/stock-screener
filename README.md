@@ -24,16 +24,16 @@ Switch strategies with the **Recovery Scan / Big Move Scan** tab in the UI:
 
 | Strategy | Target setup | Key signals | SMA200 gate | Backtest |
 |---|---|---|---|---|
-| **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 67% 3-month win rate · +7.7% avg |
+| **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 70.5% 3-month win rate · +8.6% avg |
 | **Big Move Scan** (v2) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
 
 > **Recovery Scan backtest** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
 >
 > | Metric | Value |
 > |--------|-------|
-> | 3-month win rate | **67%** |
-> | Average 3-month return | **+7.7%** |
-> | Signals per year | ~26 |
+> | 3-month win rate | **70.5%** |
+> | Average 3-month return | **+8.6%** |
+> | Signals per year | ~8 (full config, N=44 over 5 yrs) |
 > | Recommended hold | 63 trading days (3 months) |
 
 > **Big Move Scan backtest** · 10-year S&P 500 · 1.27M ticker-days · `bigmove_research.py`
@@ -45,6 +45,13 @@ Switch strategies with the **Recovery Scan / Big Move Scan** tab in the UI:
 > | **Day < −5% + Price < 70% SMA200** | **33.32×** | **14.56%** | **+39.3%** |
 >
 > Lift = precision ÷ base rate (0.437% — 1-in-228 chance of 30%+ in 42 days). Run: `python3 -m backend.bigmove_research`
+
+> ⚠️ **Survivorship bias.** Both backtests draw the ticker universe from the *current* S&P 500
+> constituent list and apply it across 5–10 years of history, so stocks that were delisted or
+> dropped from the index never enter the sample. This systematically inflates win rate, lift, and
+> average return versus a point-in-time universe. Treat the headline figures as upper bounds, not
+> expected live performance. (RVOL is measured against the prior 20 completed days, excluding the
+> signal day itself.)
 
 ---
 
@@ -103,9 +110,9 @@ The filter thresholds above were chosen empirically via a **full 5-year sweep** 
 | Step | Method | Outcome |
 |------|--------|---------|
 | Base sweep | 18 threshold combinations tested against 666K ticker-days | Best base: **RSI < 30, Day < −5%, RVOL > 3.5×, SMA200 > 75%, EMA stack** |
-| Second-layer sweep | 10 additional filters tested on top of the base | `price ≤ 90% SMA50` adds **+6.1pp** (N = 52 signals) |
-| Sector sweep | All 11 GICS sectors scored for 3-month win rate | Communication Services (44%), Utilities (50%), Health Care (56%) all underperform the **61% base** — excluded |
-| Final result | Combined configuration | **67% 3-month win rate · +7.7% avg return** |
+| Second-layer sweep | 10 additional filters tested on top of the base | `price ≤ 90% SMA50` adds **+3.8pp** (N = 59 signals) |
+| Sector sweep | All 11 GICS sectors scored for 3-month win rate | Communication Services, Utilities, Health Care all underperform the **64% base** — excluded |
+| Final result | Combined configuration | **70.5% 3-month win rate · +8.6% avg return** (N = 44) |
 
 Run the backtest yourself: `python3 -m backend.reverse_backtest --refine --base-rsi 30 --base-rvol 3.5`
 
