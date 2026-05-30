@@ -382,7 +382,7 @@ describe('App — scan mode tabs', () => {
     render(<App />)
     await userEvent.click(screen.getByRole('button', { name: /conviction scan/i }))
     await waitFor(() => {
-      const calls = mockFetch.mock.calls.map((c: [string]) => c[0])
+      const calls = mockFetch.mock.calls.map((c: any[]) => c[0])
       expect(calls.some((u: string) => u.includes('/api/filters-v3'))).toBe(true)
     })
   })

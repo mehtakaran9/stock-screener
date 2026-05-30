@@ -6,6 +6,9 @@ echo "Running frontend coverage check..."
 cd "$ROOT/frontend"
 npm run test:coverage
 
+echo "Running frontend build (tsc -b && vite build — mirrors Vercel)..."
+npm run build
+
 echo "Running backend coverage check..."
 cd "$ROOT"
 if [ -f "venv/bin/activate" ]; then
