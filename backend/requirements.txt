@@ -7,7 +7,7 @@ python-multipart==0.0.29
 httpx==0.28.1
 requests==2.34.2
 rich==15.0.0
-pandas-market-calendars==5.3.2
+pandas-market-calendars==5.4.0
 pytz==2026.2
 
 polygon-api-client==1.16.0  # optional — only needed if POLYGON_API_KEY is set
