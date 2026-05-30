@@ -64,3 +64,38 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m pytest backend/ --cov --cov-report=term-missing
+
+  # Production deploy — runs ONLY after frontend + backend pass, and only on a
+  # push to main (never on PRs). This makes a green CI a hard precondition for a
+  # production deploy. Until the three Vercel secrets are set, every step here
+  # is skipped (Vercel's own Git auto-deploy keeps deploying), so adding this job
+  # never creates a deploy gap. Once secrets exist, disable Vercel Git auto-deploy
+  # (vercel.json git.deploymentEnabled.main=false) so this is the only deploy path.
+  deploy:
+    needs: [frontend, backend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Skip if Vercel secrets are not configured
+        if: env.VERCEL_TOKEN == ''
+        run: echo "::warning::Vercel secrets not set — CI deploy skipped (Vercel Git auto-deploy still active)."
+
+      - name: Checkout
+        if: env.VERCEL_TOKEN != ''
+        uses: actions/checkout@v6
+
+      - name: Install Vercel CLI
+        if: env.VERCEL_TOKEN != ''
+        run: npm i -g vercel@latest
+
+      - name: Deploy to production (only reached because CI is green)
+        if: env.VERCEL_TOKEN != ''
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
