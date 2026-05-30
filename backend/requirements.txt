@@ -10,7 +10,7 @@ rich==15.0.0
 pandas-market-calendars==5.3.2
 pytz==2026.2
 
-polygon-api-client==1.16.0  # optional — only needed if POLYGON_API_KEY is set
+polygon-api-client==1.16.3  # optional — only needed if POLYGON_API_KEY is set
 
 # dev/test only
 pytest==9.0.3
