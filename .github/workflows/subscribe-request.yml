@@ -19,13 +19,27 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
-            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.payload.sender.login,
-            });
-            if (data.permission !== 'admin') {
-              core.setFailed(`${context.payload.sender.login} is not a repo admin — approval rejected.`);
+            // The repo owner is always an admin — short-circuit so the common case needs
+            // no API call. Reading a collaborator's permission level needs repo write/push
+            // access, which the default GITHUB_TOKEN under `permissions: issues: write` does
+            // not have, so calling it unconditionally would 403. Try it only for non-owners
+            // and fail closed (treat as non-admin) on any error instead of crashing the job.
+            const sender = context.payload.sender.login;
+            let isAdmin = sender === context.repo.owner;
+            if (!isAdmin) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: sender,
+                });
+                isAdmin = data.permission === 'admin';
+              } catch (err) {
+                core.warning(`Could not read collaborator permission for ${sender} (${err.status ?? err.message}); treating as non-admin.`);
+              }
+            }
+            if (!isAdmin) {
+              core.setFailed(`${sender} is not a repo admin — approval rejected.`);
             }
 
       - name: Post acknowledgement comment

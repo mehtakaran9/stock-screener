@@ -30,10 +30,17 @@ jobs:
       - name: Check for duplicate and update list
         id: update
         env:
+          # GH_PAT must be a token that can WRITE Actions variables (used by `gh variable set`
+          # below). The built-in GITHUB_TOKEN cannot manage variables, so a real token is
+          # required: a fine-grained PAT scoped to this repo with "Variables: Read and write".
           GH_TOKEN: ${{ secrets.GH_PAT }}
           EMAIL_LIST: ${{ vars.EMAIL_LIST }}
           NEW_EMAIL: ${{ github.event.inputs.email }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::GH_PAT secret not set — create a fine-grained PAT (Variables: Read & write on this repo) and store it as the GH_PAT secret. GITHUB_TOKEN cannot manage Actions variables."
+            exit 1
+          fi
           if echo "$EMAIL_LIST" | grep -qFx "$NEW_EMAIL"; then
             echo "duplicate=true" >> "$GITHUB_OUTPUT"
             echo "::notice::$NEW_EMAIL is already subscribed — skipping."
