@@ -2,7 +2,7 @@ import asyncio
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from backend.run_scan import is_nyse_trading_day, main
+from backend.run_scan import is_nyse_trading_day, main, _is_noon_et
 
 
 # ── is_nyse_trading_day ───────────────────────────────────────────────────────
@@ -28,6 +28,20 @@ def test_is_nyse_trading_day_handles_error():
     with patch("backend.run_scan.mcal") as mock_mcal:
         mock_mcal.get_calendar.side_effect = ConnectionError("network down")
         assert is_nyse_trading_day() is False
+
+
+# ── _is_noon_et ───────────────────────────────────────────────────────────────
+
+def test_is_noon_et_true():
+    with patch("backend.run_scan.datetime") as mock_dt:
+        mock_dt.now.return_value.hour = 12
+        assert _is_noon_et() is True
+
+
+def test_is_noon_et_false():
+    with patch("backend.run_scan.datetime") as mock_dt:
+        mock_dt.now.return_value.hour = 9
+        assert _is_noon_et() is False
 
 
 # ── main() ────────────────────────────────────────────────────────────────────
@@ -118,3 +132,29 @@ async def test_main_scheduled_run_on_trading_day():
                 with patch("backend.run_scan.screen_stocks_v2", side_effect=_empty_screen):
                     result = await main()
     assert result == 0
+
+
+async def test_main_scheduled_results_at_noon_sends_email():
+    """Scheduled run during the noon ET hour with matches → one digest sent."""
+    with patch.dict("os.environ", {"FULL_SCAN": "", "SEND_EMAIL": "true"}):
+        with patch("backend.run_scan.is_nyse_trading_day", return_value=True):
+            with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
+                with patch("backend.run_scan.screen_stocks_v2", side_effect=_result_screen):
+                    with patch("backend.run_scan._is_noon_et", return_value=True):
+                        with patch("backend.run_scan.send_scan_results_email") as mock_send:
+                            result = await main()
+    assert result == 0
+    mock_send.assert_called_once()
+
+
+async def test_main_scheduled_results_offhour_suppresses_email():
+    """Scheduled run outside the noon ET hour → scan runs but email is suppressed."""
+    with patch.dict("os.environ", {"FULL_SCAN": "", "SEND_EMAIL": "true"}):
+        with patch("backend.run_scan.is_nyse_trading_day", return_value=True):
+            with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
+                with patch("backend.run_scan.screen_stocks_v2", side_effect=_result_screen):
+                    with patch("backend.run_scan._is_noon_et", return_value=False):
+                        with patch("backend.run_scan.send_scan_results_email") as mock_send:
+                            result = await main()
+    assert result == 0
+    mock_send.assert_not_called()

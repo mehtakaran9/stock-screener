@@ -2,10 +2,11 @@ name: Daily Market Scan
 
 on:
   schedule:
-    - cron: '0,15,30,45 15-19 * * 1-5'  # 11:00 AM–3:45 PM EDT (Mar–Nov, UTC-4)
-    - cron: '0 20 * * 1-5'              # 4:00 PM EDT (Mar–Nov, UTC-4)
-    - cron: '0,15,30,45 16-20 * * 1-5'  # 11:00 AM–3:45 PM EST (Nov–Mar, UTC-5)
-    - cron: '0 21 * * 1-5'              # 4:00 PM EST (Nov–Mar, UTC-5)
+    # One scan + email digest per weekday at 12:00 PM ET. GitHub cron is UTC and can't
+    # detect DST, so both noon-ET candidates fire; run_scan.py only emails during the
+    # 12 PM ET hour, so exactly one digest goes out per day year-round.
+    - cron: '0 16 * * 1-5'  # 12:00 PM EDT (summer) / 11:00 AM EST (winter)
+    - cron: '0 17 * * 1-5'  # 1:00 PM EDT (summer) / 12:00 PM EST (winter)
   workflow_dispatch:           # Allow manual trigger from GitHub UI
     inputs:
       full_scan:

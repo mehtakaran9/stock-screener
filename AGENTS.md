@@ -69,7 +69,7 @@ The (deprecated) Recovery gate (price > 75% of SMA200) and the unified Big Move 
     - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row. The unified scan returns a 31-field JSON shape — the 27-field base plus 4 conviction fields (`insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score`) shown in a Conviction Signals panel; rows with `conviction_score ≥ 1` render a ⭐ HIGH CONVICTION badge.
     - Shows an amber warning banner if the S&P 500 CSV was unavailable and fallback tickers were used.
 4.  **GitHub Actions scan + email (`backend/run_scan.py`, `backend/notifications.py`)**:
-    - `run_scan.py` runs as a GitHub Actions cron job (every 15 min, 11 AM–4 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
+    - `run_scan.py` runs as a GitHub Actions cron job (once per weekday around 12 PM ET — it fires at both 16:00 & 17:00 UTC and only emails during the noon ET hour, so DST never shifts the digest). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
     - `notifications.py` builds a dark-themed HTML email (7 summary columns + expanded swing levels) and sends it via SMTP to all addresses in the `EMAIL_LIST` Actions variable.
     - Three workflows manage subscriptions: `daily-scan.yml` (scan + email), `add-subscriber.yml` (admin adds an address), `subscribe-request.yml` (fires when an admin approves a subscribe issue).
 

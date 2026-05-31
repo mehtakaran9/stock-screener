@@ -9,6 +9,8 @@ Optional env vars:
                    'false' = skip scan
                    ''      = scheduled run (apply trading day check)
   SEND_EMAIL       'false' = suppress email; anything else = send if results found
+                   (scheduled runs additionally only email during the 12 PM ET hour,
+                   so recipients get at most one digest per day; manual runs always send)
 Recipients are read from backend/recipients.txt (one address per line).
 """
 import asyncio
@@ -40,6 +42,13 @@ def is_nyse_trading_day() -> bool:
     except Exception as e:
         logger.warning(f"NYSE trading-day check failed ({e}); skipping scan to be safe")
         return False
+
+
+def _is_noon_et() -> bool:
+    """True during the 12 PM (noon) ET hour. The scheduled job fires at both 16:00
+    and 17:00 UTC so exactly one run lands in this hour year-round (EDT in summer,
+    EST in winter); only that run sends the once-daily email digest."""
+    return datetime.now(pytz.timezone('US/Eastern')).hour == 12
 
 
 async def main() -> int:
@@ -80,10 +89,15 @@ async def main() -> int:
     logger.info(f"Scan complete. {len(results)} matches found.")
 
     if send_email:
-        if results:
+        if not results:
+            logger.info("No matches — skipping email.")
+        elif is_manual or _is_noon_et():
             send_scan_results_email(results)
         else:
-            logger.info("No matches — skipping email.")
+            logger.info(
+                f"{len(results)} matches found, but outside the 12 PM ET digest "
+                "window — email suppressed (one digest per day)."
+            )
     else:
         logger.info(f"Email disabled — {len(results)} matches found but not sent.")
 

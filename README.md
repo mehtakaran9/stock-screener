@@ -72,7 +72,7 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | 9 | SMA 50 | **Price ≤ 90% of SMA50** | Deep discount below 50-day trend — +3.8pp win rate vs. base (N=59) |
 | 10 | Sector | **Excludes Health Care, Comm. Services, Utilities** | Empirically −10 to −17pp win rate on panic-selloff setups |
 
-Tickers that pass all 10 filters are surfaced in the UI as potential recovery trade candidates and emailed every 15 minutes from 11 AM to 4 PM ET on NYSE trading days. Recommended hold: **63 trading days (3 months)**.
+Tickers that pass all 10 filters are surfaced in the UI as potential recovery trade candidates and emailed once per weekday around 12 PM ET on NYSE trading days. Recommended hold: **63 trading days (3 months)**.
 
 ### Big Move Scanner (v2) — extreme dislocation recovery
 
@@ -186,7 +186,7 @@ flowchart LR
 
     subgraph gha ["GitHub Actions"]
         keepalive["keepalive.yml\n10:50 AM ET · Mon–Fri"]
-        daily["daily-scan.yml\nevery 15 min · 11 AM–4 PM ET · Mon–Fri\nrun_scan.py → scanner.py → notifications.py"]
+        daily["daily-scan.yml\nonce per weekday · ~12 PM ET\nrun_scan.py → scanner.py → notifications.py"]
     end
 
     yf[("yfinance\nOHLCV · market cap · last price")]
