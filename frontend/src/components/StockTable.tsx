@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
-import type { Stock, ScanMode } from '../types';
+import type { Stock } from '../types';
 
 interface StockTableProps {
   stocks: Stock[];
-  scanMode?: ScanMode;
 }
 
 type SortKey = 'price' | 'change' | 'volume' | 'vol_ratio' | 'market_cap' | 'rsi' | 'macd_hist';
@@ -31,14 +30,13 @@ const getRsiLabel = (rsi: number) => {
   return 'Weak';
 };
 
-const StockTable: React.FC<StockTableProps> = ({ stocks, scanMode = 'recovery' }) => {
+const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
   const [sortKey, setSortKey] = useState<SortKey>('change');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // entry3 differs by strategy: recovery buys the SMA200 test; big-move/conviction
-  // buy the BB lower band. Label it accurately for the active mode.
-  const level3Label = scanMode === 'recovery' ? 'SMA200 test' : 'BB lower';
+  // The unified screener scales in at the BB lower band for the deepest entry (entry3).
+  const level3Label = 'BB lower';
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -145,6 +143,14 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, scanMode = 'recovery' }
                       >
                         {stock.ticker}
                       </a>
+                      {(stock.conviction_score ?? 0) >= 1 && (
+                        <span
+                          className="conviction-badge"
+                          title={`Alt-data confirmation — conviction score ${stock.conviction_score}/3`}
+                        >
+                          ★ HIGH CONVICTION
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td>${stock.price.toFixed(2)}</td>
@@ -218,7 +224,7 @@ const StockTable: React.FC<StockTableProps> = ({ stocks, scanMode = 'recovery' }
                           </div>
                         </div>
 
-                        {stock.conviction_score !== undefined && (
+                        {(stock.conviction_score ?? 0) >= 1 && (
                           <div className="expand-section">
                             <div className="expand-label">Conviction Signals</div>
                             <div className="ma-grid">

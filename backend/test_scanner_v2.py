@@ -392,21 +392,90 @@ def test_screen_v2_empty_download_retries_and_emits_progress(mock_caps, mock_dl)
 
 
 # ── Result shape contract ────────────────────────────────────────────────────
-# v2 returns the identical 27-field shape as v1 (README: same JSON shape).
+# The unified scan returns 31 fields: the 27-field base + 4 conviction badge fields
+# (defaulted here; populated by screen_stocks_v2's alt-data step for badged rows).
 EXPECTED_RESULT_FIELDS = {
     "ticker", "exchange", "price", "change", "volume", "vol_ratio", "market_cap",
     "rsi", "macd", "macd_signal", "macd_hist",
     "ema8", "ema20", "ema50", "ema200", "sma50", "sma200",
     "bb_upper", "bb_middle", "bb_lower", "atr14",
     "entry1", "entry2", "entry3", "stop1", "stop2", "stop3",
+    "insider_buys_30d", "earnings_beat_streak", "options_call_anomaly", "conviction_score",
 }
 
 
 @patch("backend.scanner_v2.ta.rsi", return_value=pd.Series([25.0] * 300))
 @patch("backend.scanner_v2.ta.ema")
-def test_filter_v2_result_has_exact_27_fields(mock_ema, mock_rsi):
+def test_filter_v2_result_has_exact_31_fields(mock_ema, mock_rsi):
     mock_ema.side_effect = mock_ema_side_effect
     result = _filter_ticker_v2("AAPL", make_passing_df_v2(), _make_mc_v2())
     assert result is not None
     assert set(result.keys()) == EXPECTED_RESULT_FIELDS
-    assert len(result) == 27
+    assert len(result) == 31
+    # base row carries conviction defaults (no badge) until the async caller augments it
+    assert result["conviction_score"] == 0
+    assert result["options_call_anomaly"] is False
+
+
+# ── ⭐ HIGH CONVICTION badge augmentation (v3 folded into v2) ──────────────────
+@patch("yfinance.download")
+@patch("backend.scanner_v2._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner_v2.ta.rsi")
+@patch("backend.scanner_v2.ta.ema")
+@patch("backend.scanner_v2._filter_ticker_v3_technical")
+@patch("backend.scanner_v2._fetch_alt_data_v3")
+def test_screen_v2_high_conviction_badge(mock_alt, mock_v3tech, mock_ema, mock_rsi, mock_caps, mock_dl):
+    """A v2 row that also clears the v3 gates + alt-data gets conviction_score >= 1 (badge)."""
+    mock_dl.return_value = multiindex(make_passing_df_v2())
+    mock_caps.return_value = {"AAPL": {"market_cap": 5e9, "exchange": "NASDAQ",
+                                        "last_price": 55.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([25.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_v3tech.return_value = {"ticker": "AAPL"}          # simulate v3 technical pass
+    mock_alt.return_value = {"insider_buys_30d": 2, "earnings_beat_streak": 3,
+                             "options_call_anomaly": False, "conviction_score": 2,
+                             "skip_earnings": False}
+    results = [r for r in run_screen_v2(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert results[0]["conviction_score"] == 2
+    assert results[0]["insider_buys_30d"] == 2
+    assert results[0]["earnings_beat_streak"] == 3
+
+
+@patch("yfinance.download")
+@patch("backend.scanner_v2._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner_v2.ta.rsi")
+@patch("backend.scanner_v2.ta.ema")
+@patch("backend.scanner_v2._filter_ticker_v3_technical")
+@patch("backend.scanner_v2._fetch_alt_data_v3")
+def test_screen_v2_skip_earnings_no_badge(mock_alt, mock_v3tech, mock_ema, mock_rsi, mock_caps, mock_dl):
+    """A v3-technical pass with imminent earnings stays a normal pick (no badge, score 0)."""
+    mock_dl.return_value = multiindex(make_passing_df_v2())
+    mock_caps.return_value = {"AAPL": {"market_cap": 5e9, "exchange": "NASDAQ",
+                                        "last_price": 55.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([25.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_v3tech.return_value = {"ticker": "AAPL"}
+    mock_alt.return_value = {"insider_buys_30d": 1, "earnings_beat_streak": 2,
+                             "options_call_anomaly": False, "conviction_score": 2,
+                             "skip_earnings": True}
+    results = [r for r in run_screen_v2(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert results[0]["conviction_score"] == 0  # skip_earnings → defaults retained, no badge
+
+
+@patch("yfinance.download")
+@patch("backend.scanner_v2._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner_v2.ta.rsi")
+@patch("backend.scanner_v2.ta.ema")
+@patch("backend.scanner_v2._filter_ticker_v3_technical", return_value=None)
+def test_screen_v2_no_v3_pass_keeps_defaults(mock_v3tech, mock_ema, mock_rsi, mock_caps, mock_dl):
+    """A plain v2 row that doesn't clear the v3 gates keeps conviction defaults (score 0)."""
+    mock_dl.return_value = multiindex(make_passing_df_v2())
+    mock_caps.return_value = {"AAPL": {"market_cap": 5e9, "exchange": "NASDAQ",
+                                        "last_price": 55.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([25.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    results = [r for r in run_screen_v2(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert results[0]["conviction_score"] == 0

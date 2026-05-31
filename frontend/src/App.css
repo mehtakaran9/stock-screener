@@ -382,41 +382,18 @@ tr.selected {
   color: var(--success);
 }
 
-/* ── Scan mode tabs ── */
-.scan-mode-tabs {
-  display: flex;
-}
-
-.mode-tab {
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
+/* ── HIGH CONVICTION badge (unified scan: conviction_score >= 1) ── */
+.conviction-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #0b0b0f;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  transition: background-color 0.2s, color 0.2s;
-}
-
-.mode-tab:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.mode-tab:last-child {
-  border-radius: 0 4px 4px 0;
-}
-
-.mode-tab + .mode-tab {
-  border-left: none;
-}
-
-.mode-tab:hover:not(.active) {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.mode-tab.active {
-  background-color: rgba(187, 134, 252, 0.15);
-  color: var(--accent);
-  border-color: var(--accent);
+  white-space: nowrap;
+  vertical-align: middle;
 }

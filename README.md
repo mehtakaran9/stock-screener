@@ -18,15 +18,14 @@
   </a>
 </p>
 
-A real-time technical stock screener with **three complementary strategies** for the S&P 500 universe. Scan results stream live to the browser via SSE and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
+A real-time technical stock screener for the S&P 500 universe — **one unified screener** that buys panic selloffs into extreme dislocation and badges the rare, alt-data-confirmed names as ⭐ **HIGH CONVICTION**. Scan results stream live to the browser via SSE and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
-Switch strategies with the **Recovery Scan / Big Move Scan / Conviction Scan** tab in the UI:
-
-| Strategy | Target setup | Key signals | SMA200 gate | Backtest |
+| Layer | Target setup | Key signals | SMA200 gate | Backtest |
 |---|---|---|---|---|
-| **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 70.5% 3-month win rate · +8.6% avg |
-| **Big Move Scan** (v2) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
-| **Conviction Scan** (v3) | Extreme dislocation + real-money confirmation | Day < −5%, RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, + alt-data | Price **<** 70% of SMA200 (deep distress) | Rare — ~3–4 signals/yr · targets 20%+ in 42 days |
+| **Unified scan** (`/api/scan-v2`) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
+| **⭐ HIGH CONVICTION** badge | The above, gated far tighter + real-money confirmation | + RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, `conviction_score` ≥ 1 | Price **<** 70% of SMA200 | Rare — ~3–4 signals/yr · targets 20%+ in 42 days |
+
+> **Deprecated / dormant:** the earlier **Recovery Scan** (v1, `/api/scan` — healthy-uptrend dips, price > 75% SMA200) and the **standalone Conviction Scan** (v3, `/api/scan-v3`) endpoints remain in the codebase but are **no longer surfaced** in the UI or the daily email. v3 is now folded into the unified scan as the HIGH CONVICTION badge — every v3 pick is already a v2 pick (v3 ⊆ v2), so it's a flag on the rows rather than a separate scan.
 
 > **Recovery Scan backtest** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
 >
@@ -104,9 +103,9 @@ Each result also includes computed entry / stop levels for the snap-back trade:
 
 Risk per share for each scenario is shown in the expanded row of the web UI table.
 
-### Conviction Scanner (v3) — multi-factor + alt-data confirmation
+### ⭐ HIGH CONVICTION badge — multi-factor + alt-data confirmation (folded into the unified scan)
 
-Very selective — a handful of high-conviction signals per *year*, not per week: on 5½ years of S&P 500 history the technical gates triggered only ~20 times (≈3–4/yr), and the alt-data requirement filters further. In that sample ~60% went on to gain ≥ 20% within 42 trading days. These are stocks in the same extreme-dislocation regime as v2 (price < 70% of SMA200) but gated far more tightly **and** required to carry real-money confirmation. A ticker must clear every technical gate **and** score ≥ 1 on alt-data. Names reporting earnings within 7 days are skipped (binary-event risk). Results stream from `/api/scan-v3`; active filters load from `/api/filters-v3`.
+Very selective — a handful of high-conviction signals per *year*, not per week: on 5½ years of S&P 500 history the technical gates triggered only ~20 times (≈3–4/yr), and the alt-data requirement filters further. In that sample ~60% went on to gain ≥ 20% within 42 trading days. These are stocks in the same extreme-dislocation regime as v2 (price < 70% of SMA200) but gated far more tightly **and** required to carry real-money confirmation. A row earns the badge when it clears every technical gate **and** scores ≥ 1 on alt-data. It's computed **inline on the unified scan** (`/api/scan-v2`) — qualifying rows get `conviction_score ≥ 1` and the ⭐ HIGH CONVICTION badge. (A row that clears the gates but reports earnings within 7 days stays an un-badged pick. The standalone `/api/scan-v3` endpoint still exists but is dormant.)
 
 | # | Filter | Threshold | vs. v2 |
 |---|--------|-----------|--------|
@@ -154,10 +153,10 @@ Every matched stock returns the following fields from `/api/scan`:
 | `sma50` | 50-day simple moving average | price ≤ 90% of SMA50 |
 | `bb_upper`, `bb_middle`, `bb_lower` | Bollinger Bands (20, 2) | informational |
 | `atr14` | Average True Range (14) | — |
-| `entry1/2/3` | Three recovery entry price levels | — |
+| `entry1/2/3` | Three scale-in entry levels (close · EMA8 · BB lower) | — |
 | `stop1/2/3` | Corresponding stop loss levels | — |
 
-> **`/api/scan-v2` returns the same 27 fields** with identical names and types. Filter thresholds differ (RSI < 35, RVOL > 1.5×, SMA200 gate inverted) but the JSON shape is identical — `StockTable` renders both without any changes. **`/api/scan-v3` returns the same 27 fields plus 4 conviction fields** (`insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score`).
+> **`/api/scan-v2` (the unified scan) returns 31 fields** — the 27-field base above plus 4 conviction fields (`insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score`); rows with `conviction_score ≥ 1` are flagged ⭐ HIGH CONVICTION. The dormant `/api/scan` (v1) returns the 27-field base.
 
 ---
 
@@ -209,7 +208,7 @@ flowchart LR
 
 - **GitHub Actions** owns the scheduled scan and email. `keepalive.yml` pings Render 10 minutes before the daily scan to avoid cold-start delays. `daily-scan.yml` runs four cron entries (EDT + EST) and guards against duplicate fires on DST transition weeks via `is_nyse_trading_day()`. Recipients are stored in the `EMAIL_LIST` Actions variable and written to `backend/recipients.txt` at runtime.
 - **Render** hosts the FastAPI backend (512 MB RAM; sleeps after 15 min of inactivity). The keepalive ping ensures it is warm when the daily scan runs.
-- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. Three SSE endpoints exist: `/api/scan` (recovery), `/api/scan-v2` (big move), and `/api/scan-v3` (conviction); each has its own 10-minute result cache. `VITE_API_URL` wires up the Render service URL.
+- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. The UI uses one endpoint — `/api/scan-v2` (the unified scan); `/api/scan` (v1) and `/api/scan-v3` (standalone v3) remain as **dormant** SSE endpoints. Each has its own 10-minute result cache. `VITE_API_URL` wires up the Render service URL.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
 
 ---

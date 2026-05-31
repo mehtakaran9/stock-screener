@@ -84,6 +84,14 @@ def _build_html_table(stocks_data: list, is_test: bool = False) -> str:
 
         rsi = s.get("rsi", 0.0)
 
+        conviction = s.get("conviction_score", 0)
+        hc_badge = (
+            f'<span style="display:inline-block;margin-left:8px;padding:2px 7px;'
+            f'border-radius:4px;background:{ACCENT};color:#000;font-size:9px;'
+            f'font-weight:700;letter-spacing:0.04em;vertical-align:middle;white-space:nowrap">'
+            f'&#11088; HIGH CONVICTION ({conviction}/3)</span>'
+        ) if conviction >= 1 else ""
+
         macd_hist = s.get("macd_hist", 0.0)
         macd_bull  = macd_hist >= 0
         macd_color = SUCCESS if macd_bull else DANGER
@@ -98,7 +106,7 @@ def _build_html_table(stocks_data: list, is_test: bool = False) -> str:
         rows += (
             "<tr>"
             f'<td style="{TD};font-weight:700">'
-            f'  <a href="{url}" style="color:{ACCENT};text-decoration:none">{ticker}</a></td>'
+            f'  <a href="{url}" style="color:{ACCENT};text-decoration:none">{ticker}</a>{hc_badge}</td>'
             f'<td style="{TD}">${s.get("price", 0):.2f}</td>'
             f'<td style="{TD};color:{change_color};font-weight:600">{sign}{change:.2f}%</td>'
             f'<td style="{TD}">{fmt_number(volume)}<br>'
@@ -161,7 +169,7 @@ def _build_html_table(stocks_data: list, is_test: bool = False) -> str:
 
             f'<tr>'
             f'<td style="{LTD_LAST};color:{TEXT_SECONDARY};font-weight:700">3</td>'
-            f'<td style="{LTD_LAST}">SMA200 test</td>'
+            f'<td style="{LTD_LAST}">BB lower</td>'
             f'<td style="{LTD_LAST};color:{SUCCESS}">${entry3:.2f}</td>'
             f'<td style="{LTD_LAST};color:{DANGER}">${stop3:.2f}</td>'
             f'<td style="{LTD_LAST};color:{TEXT_SECONDARY}">${risk3:.2f}</td>'
@@ -205,6 +213,9 @@ def _build_html_table(stocks_data: list, is_test: bool = False) -> str:
     )
 
 
+# Dummy data for test emails (delivery/render verification only). Shaped like a
+# unified-scan result (incl. the 4 conviction fields); AAPL + DXCM are badged
+# ⭐ HIGH CONVICTION so the test email exercises the badge. entry3 = BB lower.
 _DUMMY_STOCKS = [
     {
         "ticker": "AAPL", "exchange": "NASDAQ",
@@ -216,8 +227,10 @@ _DUMMY_STOCKS = [
         "sma50": 194.80, "sma200": 185.60,
         "bb_upper": 225.10, "bb_middle": 210.50, "bb_lower": 195.90,
         "atr14": 4.25,
-        "entry1": 213.45, "entry2": 208.12, "entry3": 210.50,
+        "entry1": 213.45, "entry2": 208.12, "entry3": 195.90,
         "stop1": 209.20, "stop2": 205.99, "stop3": 192.67,
+        "insider_buys_30d": 2, "earnings_beat_streak": 3,
+        "options_call_anomaly": False, "conviction_score": 2,
     },
     {
         "ticker": "NVDA", "exchange": "NASDAQ",
@@ -229,8 +242,10 @@ _DUMMY_STOCKS = [
         "sma50": 788.20, "sma200": 620.48,
         "bb_upper": 910.40, "bb_middle": 858.70, "bb_lower": 807.00,
         "atr14": 18.90,
-        "entry1": 875.20, "entry2": 851.33, "entry3": 858.70,
+        "entry1": 875.20, "entry2": 851.33, "entry3": 807.00,
         "stop1": 856.30, "stop2": 841.88, "stop3": 778.75,
+        "insider_buys_30d": 0, "earnings_beat_streak": 0,
+        "options_call_anomaly": False, "conviction_score": 0,
     },
     {
         "ticker": "MSFT", "exchange": "NASDAQ",
@@ -242,8 +257,10 @@ _DUMMY_STOCKS = [
         "sma50": 397.10, "sma200": 380.10,
         "bb_upper": 435.60, "bb_middle": 415.30, "bb_lower": 395.00,
         "atr14": 7.80,
-        "entry1": 421.80, "entry2": 413.55, "entry3": 415.30,
+        "entry1": 421.80, "entry2": 413.55, "entry3": 395.00,
         "stop1": 413.80, "stop2": 409.65, "stop3": 393.20,
+        "insider_buys_30d": 0, "earnings_beat_streak": 0,
+        "options_call_anomaly": False, "conviction_score": 0,
     },
     {
         "ticker": "XOM", "exchange": "NYSE",
@@ -255,8 +272,10 @@ _DUMMY_STOCKS = [
         "sma50": 107.80, "sma200": 98.30,
         "bb_upper": 122.40, "bb_middle": 115.60, "bb_lower": 108.80,
         "atr14": 2.35,
-        "entry1": 118.75, "entry2": 114.92, "entry3": 115.60,
+        "entry1": 118.75, "entry2": 114.92, "entry3": 108.80,
         "stop1": 116.40, "stop2": 113.74, "stop3": 106.68,
+        "insider_buys_30d": 0, "earnings_beat_streak": 0,
+        "options_call_anomaly": False, "conviction_score": 0,
     },
     {
         "ticker": "DXCM", "exchange": "NASDAQ",
@@ -268,8 +287,10 @@ _DUMMY_STOCKS = [
         "sma50": 55.20, "sma200": 52.75,
         "bb_upper": 65.80, "bb_middle": 61.10, "bb_lower": 56.40,
         "atr14": 1.85,
-        "entry1": 62.40, "entry2": 60.11, "entry3": 61.10,
+        "entry1": 62.40, "entry2": 60.11, "entry3": 56.40,
         "stop1": 60.55, "stop2": 59.19, "stop3": 54.28,
+        "insider_buys_30d": 0, "earnings_beat_streak": 2,
+        "options_call_anomaly": False, "conviction_score": 1,
     },
 ]
 

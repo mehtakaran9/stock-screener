@@ -20,7 +20,6 @@ function App() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [isWaking, setIsWaking] = useState(false);
-  const [scanMode, setScanMode] = useState<'recovery' | 'bigmove' | 'conviction'>('recovery');
   const eventSourceRef = useRef<EventSource | null>(null);
   const wakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeControllerRef = useRef<AbortController | null>(null);
@@ -36,30 +35,15 @@ function App() {
     };
   }, []);
 
-  const fetchFilters = async (mode: 'recovery' | 'bigmove' | 'conviction' = 'recovery') => {
+  const fetchFilters = async () => {
     try {
-      const endpoint = mode === 'bigmove' ? '/api/filters-v2'
-                     : mode === 'conviction' ? '/api/filters-v3'
-                     : '/api/filters';
-      const response = await fetch(`${API_URL}${endpoint}`);
+      const response = await fetch(`${API_URL}/api/filters-v2`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       setActiveFilters(data.filters);
     } catch (error) {
       console.error('Error fetching filters:', error);
     }
-  };
-
-  const switchMode = (mode: 'recovery' | 'bigmove' | 'conviction') => {
-    if (mode === scanMode) return;
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
-    setIsScanning(false);
-    setStocks([]);
-    setScanComplete(null);
-    setScanWarning(null);
-    setScanMode(mode);
-    fetchFilters(mode);
   };
 
   const startScan = async () => {
@@ -92,10 +76,7 @@ function App() {
     wakeTimerRef.current = null;
     setIsWaking(false);
 
-    const scanEndpoint = scanMode === 'bigmove' ? '/api/scan-v2'
-                       : scanMode === 'conviction' ? '/api/scan-v3'
-                       : '/api/scan';
-    const es = new EventSource(`${API_URL}${scanEndpoint}`);
+    const es = new EventSource(`${API_URL}/api/scan-v2`);
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {
@@ -164,20 +145,6 @@ function App() {
           <h1>StockScreener Pro</h1>
         </div>
         <div className="controls">
-          <div className="scan-mode-tabs">
-            <button
-              className={`mode-tab${scanMode === 'recovery' ? ' active' : ''}`}
-              onClick={() => switchMode('recovery')}
-            >Recovery Scan</button>
-            <button
-              className={`mode-tab${scanMode === 'bigmove' ? ' active' : ''}`}
-              onClick={() => switchMode('bigmove')}
-            >Big Move Scan</button>
-            <button
-              className={`mode-tab${scanMode === 'conviction' ? ' active' : ''}`}
-              onClick={() => switchMode('conviction')}
-            >Conviction Scan</button>
-          </div>
           <button
             className={`btn-primary ${isScanning ? 'loading' : ''}`}
             onClick={startScan}
@@ -231,7 +198,7 @@ function App() {
             )}
           </div>
           
-          <StockTable stocks={stocks} scanMode={scanMode} />
+          <StockTable stocks={stocks} />
         </div>
       </main>
 

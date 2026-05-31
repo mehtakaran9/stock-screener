@@ -14,6 +14,12 @@ Top findings from bigmove_research.py:
   Day < -5% + RSI < 30            →  18.34× lift,  8.01% precision, +39.7% avg
   Price < 70% SMA200 + RSI < 30  →  16.25× lift,  7.10% precision, +40.2% avg
 
+This is the PRIMARY (unified) screener surfaced in the UI and daily email.
+Rows that additionally clear the tighter v3 "conviction" gates (RVOL ≥ 3.5×,
+RSI < 25, candle ≥ 1.5× ATR) AND carry alt-data confirmation get a non-zero
+`conviction_score` (0–3) and are rendered "⭐ HIGH CONVICTION" — v3 is folded
+in as a badge rather than a separate scan (v3 ⊆ v2).
+
 Usage: imported by main.py; not run directly.
 """
 import asyncio
@@ -32,6 +38,11 @@ from backend.scanner import (
     _EXCHANGE_MAP,
     get_full_market_tickers,
 )
+# v3 is now folded into v2 as the ⭐ HIGH CONVICTION badge (v3 ⊆ v2): every v3
+# pick is already a v2 pick, so we annotate v2 rows that also clear the tighter
+# v3 gates rather than running a separate scan. Reuses v3's technical filter +
+# alt-data fetch. (scanner_v3 only imports from scanner — no circular import.)
+from backend.scanner_v3 import _filter_ticker_v3_technical, _fetch_alt_data_v3
 
 logger = logging.getLogger("scanner_v2")
 logger.setLevel(logging.DEBUG)
@@ -243,6 +254,13 @@ def _filter_ticker_v2(ticker: str, data: pd.DataFrame, market_caps: dict) -> dic
             "stop1":       stop1,
             "stop2":       stop2,
             "stop3":       stop3,
+            # ⭐ HIGH CONVICTION badge fields — defaults here; populated by the
+            # async caller's alt-data step for the rare rows that also clear the
+            # tighter v3 gates. conviction_score >= 1 → rendered "HIGH CONVICTION".
+            "insider_buys_30d":     0,
+            "earnings_beat_streak": 0,
+            "options_call_anomaly": False,
+            "conviction_score":     0,
         }
     except Exception as e:
         logger.warning(f"Error processing {ticker} ({type(e).__name__}): {e}")
@@ -302,7 +320,17 @@ async def screen_stocks_v2(tickers: List[str]):
             await queue.put({"status": "progress", "current": processed_count, "ticker": ticker})
             result = _filter_ticker_v2(ticker, data, market_caps)
             if result:
-                logger.info(f"v2 match: {ticker} at ${result['price']} ({result['change']}%)")
+                # ⭐ HIGH CONVICTION overlay: if this row also clears the tighter
+                # v3 technical gates, fetch alt-data and (unless an earnings binary
+                # event is imminent) attach the conviction score. A row with an
+                # imminent earnings event stays a normal pick (score 0, no badge)
+                # rather than being dropped the way the standalone v3 scan drops it.
+                if _filter_ticker_v3_technical(ticker, data, market_caps) is not None:
+                    alt = await asyncio.to_thread(_fetch_alt_data_v3, ticker)
+                    if not alt.get("skip_earnings"):
+                        result.update({k: v for k, v in alt.items() if k != "skip_earnings"})
+                badge = " ⭐HIGH-CONVICTION" if result["conviction_score"] >= 1 else ""
+                logger.info(f"match: {ticker} at ${result['price']} ({result['change']}%){badge}")
                 await queue.put(result)
             await asyncio.sleep(0)
         await queue.put(None)

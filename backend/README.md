@@ -1,20 +1,20 @@
 # Backend — FastAPI Stock Screener
 
-FastAPI service with three stock screening strategies, SSE streaming, 10-minute result caches, and a daily email digest.
+FastAPI service with a **unified stock screener** (Big Move extreme-dislocation pipeline + ⭐ HIGH CONVICTION badge), SSE streaming, 10-minute result caches, and a daily email digest. Two earlier strategies — Recovery (v1) and standalone Conviction (v3) — remain as **dormant** endpoints (code kept, not surfaced).
 
 ## Modules
 
 | File | Role |
 |------|------|
-| `main.py` | FastAPI app — `/api/scan`, `/api/filters`, `/api/scan-v2`, `/api/filters-v2`, `/api/scan-v3`, `/api/filters-v3`, cache |
-| `scanner.py` | Recovery screener — 10-filter pipeline (price > 75% SMA200); bulk yfinance downloads, async generator |
-| `scanner_v2.py` | Big Move screener — 8-filter extreme dislocation pipeline (price < 70% SMA200); identical async generator shape |
-| `scanner_v3.py` | Conviction screener — tighter `CONFIG_V3` technical pipeline (RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, price < 70% SMA200) plus an alt-data gate (`conviction_score ≥ 1`); very selective (~3–4 signals/yr) |
+| `main.py` | FastAPI app. **Primary:** `/api/scan-v2` + `/api/filters-v2` (the unified scan). **Dormant:** `/api/scan` + `/api/filters` (v1), `/api/scan-v3` + `/api/filters-v3` (standalone v3). Per-endpoint 10-min caches. |
+| `scanner.py` | **Shared base** + dormant Recovery screener. Owns the S&P ticker fetch (`get_full_market_tickers`), market-cap/exchange + rate-limit helpers imported by v2/v3. Its v1 recovery pipeline (price > 75% SMA200) is **dormant** (`/api/scan`). |
+| `scanner_v2.py` | **PRIMARY unified screener** — 8-filter extreme-dislocation pipeline (price < 70% SMA200). Rows that also clear the tighter v3 gates + alt-data are flagged `conviction_score ≥ 1` (⭐ HIGH CONVICTION). Surfaced at `/api/scan-v2`. |
+| `scanner_v3.py` | Conviction logic — tighter `CONFIG_V3` technical pipeline (RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR) + alt-data gate. Its `_filter_ticker_v3_technical` + `_fetch_alt_data_v3` are **reused by the unified scan** to compute the HIGH CONVICTION badge (~3–4 signals/yr); the standalone `/api/scan-v3` generator is **dormant**. |
 | `notifications.py` | HTML email builder and SMTP sender |
-| `run_scan.py` | GitHub Actions entrypoint — trading-day check, recovery (v1) scan, email |
+| `run_scan.py` | GitHub Actions entrypoint — trading-day check, **unified (v2 + ⭐ HIGH CONVICTION) scan**, email |
 | `utils.py` | Design tokens (colours, formatters) shared between email and web UI |
 | `recovery_scanner.py` | Standalone CLI (**not** wired into the API) — alternative recovery / mean-reversion screener with a ~10-day hold; `python3 -m backend.recovery_scanner` |
-| `alt_data.py` | Alternative-data utilities (SEC Form 4 insider buys, earnings beat streak, Polygon options flow) — consumed by `scanner_v3.py` and the research CLIs |
+| `alt_data.py` | Alternative-data utilities (SEC Form 4 insider buys, earnings beat streak, Polygon options flow) — power the unified scan's ⭐ HIGH CONVICTION badge (via `scanner_v3.py`) and the research CLIs |
 | `bigmove_research.py` | 10-year S&P 500 backtest CLI (v2 research) — signal combos that predict 30%+ moves in 42 days; `python3 -m backend.bigmove_research` |
 | `conviction_research.py` | Conviction (v3) research CLI — multi-factor + alt-data backtest; `python3 -m backend.conviction_research` |
 | `reverse_backtest.py` | 5-year recovery (v1) calibration CLI — base + second-layer filter/sector sweep; `python3 -m backend.reverse_backtest --refine` |

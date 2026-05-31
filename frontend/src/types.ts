@@ -1,5 +1,3 @@
-export type ScanMode = 'recovery' | 'bigmove' | 'conviction';
-
 export interface Stock {
   ticker: string;
   exchange: string;

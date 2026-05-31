@@ -115,7 +115,15 @@ def test_build_html_table_swing_levels():
     result = _build_html_table([_STOCK])
     assert "Breakout" in result
     assert "EMA 8 pullback" in result
-    assert "SMA200 test" in result
+    assert "BB lower" in result
+
+
+def test_build_html_table_high_conviction_badge():
+    from backend.notifications import _DUMMY_STOCKS
+    html = _build_html_table(_DUMMY_STOCKS)
+    assert "HIGH CONVICTION" in html  # AAPL & DXCM are badged in the dummy set
+    # a row without conviction data shows no badge
+    assert "HIGH CONVICTION" not in _build_html_table([_STOCK])
 
 
 # ── send_scan_results_email ───────────────────────────────────────────────────

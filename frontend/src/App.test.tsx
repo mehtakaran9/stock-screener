@@ -303,75 +303,22 @@ describe('App — rate calculation and ETA', () => {
   })
 })
 
-describe('App — scan mode tabs', () => {
-  it('renders all three scan mode tab buttons', () => {
+describe('App — unified scan (no mode tabs)', () => {
+  it('renders no scan-mode tab buttons', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: /recovery scan/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /big move scan/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /conviction scan/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /recovery scan/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /big move scan/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /conviction scan/i })).not.toBeInTheDocument()
   })
 
-  it('Recovery Scan tab is active by default', () => {
+  it('the scan creates an EventSource for /api/scan-v2', async () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: /recovery scan/i })).toHaveClass('active')
-    expect(screen.getByRole('button', { name: /big move scan/i })).not.toHaveClass('active')
-    expect(screen.getByRole('button', { name: /conviction scan/i })).not.toHaveClass('active')
-  })
-
-  it('clicking the active tab is a no-op', async () => {
-    render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /recovery scan/i }))
-    expect(MockEventSource.instances).toHaveLength(0)
-  })
-
-  it('switching to Big Move mode clears results and marks that tab active', async () => {
-    const es = await renderAndWaitForES()
-    act(() => {
-      es.emit(stockPayload('AAPL'))
-      es.emit({ status: 'complete', total: 100 })
-    })
-    await waitFor(() => expect(screen.getByRole('link', { name: 'AAPL' })).toBeInTheDocument())
-
-    await userEvent.click(screen.getByRole('button', { name: /big move scan/i }))
-    expect(screen.queryByRole('link', { name: 'AAPL' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /big move scan/i })).toHaveClass('active')
-    expect(screen.getByRole('button', { name: /recovery scan/i })).not.toHaveClass('active')
-  })
-
-  it('Big Move mode creates EventSource for /api/scan-v2', async () => {
-    render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /big move scan/i }))
     await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
     await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
     expect(MockEventSource.instances[0].url).toContain('/api/scan-v2')
   })
 
-  it('Recovery mode creates EventSource for /api/scan', async () => {
-    render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
-    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
-    expect(MockEventSource.instances[0].url).toContain('/api/scan')
-    expect(MockEventSource.instances[0].url).not.toContain('/api/scan-v2')
-    expect(MockEventSource.instances[0].url).not.toContain('/api/scan-v3')
-  })
-
-  it('Conviction Scan tab is active when clicked', async () => {
-    render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /conviction scan/i }))
-    expect(screen.getByRole('button', { name: /conviction scan/i })).toHaveClass('active')
-    expect(screen.getByRole('button', { name: /recovery scan/i })).not.toHaveClass('active')
-    expect(screen.getByRole('button', { name: /big move scan/i })).not.toHaveClass('active')
-  })
-
-  it('Conviction Scan mode creates EventSource for /api/scan-v3', async () => {
-    render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /conviction scan/i }))
-    await userEvent.click(screen.getByRole('button', { name: /start scan/i }))
-    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
-    expect(MockEventSource.instances[0].url).toContain('/api/scan-v3')
-  })
-
-  it('switching to Conviction Scan fetches /api/filters-v3', async () => {
+  it('fetches filters from /api/filters-v2 on mount', async () => {
     const mockFetch = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes('/api/filters')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ filters: ['Filter 1'] }) })
@@ -380,10 +327,9 @@ describe('App — scan mode tabs', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
     render(<App />)
-    await userEvent.click(screen.getByRole('button', { name: /conviction scan/i }))
     await waitFor(() => {
       const calls = mockFetch.mock.calls.map((c: any[]) => c[0])
-      expect(calls.some((u: string) => u.includes('/api/filters-v3'))).toBe(true)
+      expect(calls.some((u: string) => u.includes('/api/filters-v2'))).toBe(true)
     })
   })
 })

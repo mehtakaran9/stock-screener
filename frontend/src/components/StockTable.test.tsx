@@ -271,33 +271,30 @@ describe('StockTable — row expansion', () => {
     expect(screen.queryByText('Moving Averages')).not.toBeInTheDocument()
   })
 
-  it('does not show Conviction Signals section for v1/v2 stocks (no conviction_score)', () => {
-    render(<StockTable stocks={[makeStock()]} />)
+  it('hides Conviction Signals for a non-badged row (conviction_score 0)', () => {
+    render(<StockTable stocks={[makeStock({ conviction_score: 0 })]} />)
     const row = screen.getByRole('link', { name: 'AAPL' }).closest('tr')!
     fireEvent.click(row)
     expect(screen.queryByText('Conviction Signals')).not.toBeInTheDocument()
   })
 })
 
-describe('StockTable — mode-aware swing level 3 label', () => {
-  it('labels level 3 "SMA200 test" in recovery mode (default)', () => {
+describe('StockTable — swing level 3 label + HIGH CONVICTION badge', () => {
+  it('labels level 3 "BB lower" (unified scan scales in at the lower band)', () => {
     render(<StockTable stocks={[makeStock()]} />)
-    fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
-    expect(screen.getByText('SMA200 test')).toBeInTheDocument()
-    expect(screen.queryByText('BB lower')).not.toBeInTheDocument()
-  })
-
-  it('labels level 3 "BB lower" in big-move mode', () => {
-    render(<StockTable stocks={[makeStock()]} scanMode="bigmove" />)
     fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
     expect(screen.getByText('BB lower')).toBeInTheDocument()
     expect(screen.queryByText('SMA200 test')).not.toBeInTheDocument()
   })
 
-  it('labels level 3 "BB lower" in conviction mode', () => {
-    render(<StockTable stocks={[makeStock({ conviction_score: 2 })]} scanMode="conviction" />)
-    fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
-    expect(screen.getByText('BB lower')).toBeInTheDocument()
+  it('shows the HIGH CONVICTION badge when conviction_score >= 1', () => {
+    render(<StockTable stocks={[makeStock({ conviction_score: 2 })]} />)
+    expect(screen.getByText(/HIGH CONVICTION/i)).toBeInTheDocument()
+  })
+
+  it('hides the badge when conviction_score is 0', () => {
+    render(<StockTable stocks={[makeStock({ conviction_score: 0 })]} />)
+    expect(screen.queryByText(/HIGH CONVICTION/i)).not.toBeInTheDocument()
   })
 })
 

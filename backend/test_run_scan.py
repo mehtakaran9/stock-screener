@@ -53,7 +53,7 @@ async def test_main_skip_scan_no_email():
 async def test_main_not_trading_day_skips_scan():
     with patch.dict("os.environ", {"FULL_SCAN": ""}):
         with patch("backend.run_scan.is_nyse_trading_day", return_value=False):
-            with patch("backend.run_scan.screen_stocks") as mock_screen:
+            with patch("backend.run_scan.screen_stocks_v2") as mock_screen:
                 result = await main()
     assert result == 0
     mock_screen.assert_not_called()
@@ -76,7 +76,7 @@ async def _result_screen(tickers):
 async def test_main_manual_trigger_with_results():
     with patch.dict("os.environ", {"FULL_SCAN": "true", "SEND_EMAIL": "true"}):
         with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
-            with patch("backend.run_scan.screen_stocks", side_effect=_result_screen):
+            with patch("backend.run_scan.screen_stocks_v2", side_effect=_result_screen):
                 with patch("backend.run_scan.send_scan_results_email") as mock_send:
                     result = await main()
     assert result == 0
@@ -86,7 +86,7 @@ async def test_main_manual_trigger_with_results():
 async def test_main_manual_trigger_no_results_no_email():
     with patch.dict("os.environ", {"FULL_SCAN": "true", "SEND_EMAIL": "true"}):
         with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
-            with patch("backend.run_scan.screen_stocks", side_effect=_progress_screen):
+            with patch("backend.run_scan.screen_stocks_v2", side_effect=_progress_screen):
                 with patch("backend.run_scan.send_scan_results_email") as mock_send:
                     result = await main()
     assert result == 0
@@ -96,7 +96,7 @@ async def test_main_manual_trigger_no_results_no_email():
 async def test_main_email_disabled_even_with_results():
     with patch.dict("os.environ", {"FULL_SCAN": "true", "SEND_EMAIL": "false"}):
         with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
-            with patch("backend.run_scan.screen_stocks", side_effect=_result_screen):
+            with patch("backend.run_scan.screen_stocks_v2", side_effect=_result_screen):
                 with patch("backend.run_scan.send_scan_results_email") as mock_send:
                     result = await main()
     assert result == 0
@@ -106,7 +106,7 @@ async def test_main_email_disabled_even_with_results():
 async def test_main_fallback_tickers_logs_warning():
     with patch.dict("os.environ", {"FULL_SCAN": "true", "SEND_EMAIL": "false"}):
         with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], False)):
-            with patch("backend.run_scan.screen_stocks", side_effect=_empty_screen):
+            with patch("backend.run_scan.screen_stocks_v2", side_effect=_empty_screen):
                 result = await main()
     assert result == 0
 
@@ -115,6 +115,6 @@ async def test_main_scheduled_run_on_trading_day():
     with patch.dict("os.environ", {"FULL_SCAN": "", "SEND_EMAIL": "false"}):
         with patch("backend.run_scan.is_nyse_trading_day", return_value=True):
             with patch("backend.run_scan.get_full_market_tickers", return_value=(["AAPL"], True)):
-                with patch("backend.run_scan.screen_stocks", side_effect=_empty_screen):
+                with patch("backend.run_scan.screen_stocks_v2", side_effect=_empty_screen):
                     result = await main()
     assert result == 0

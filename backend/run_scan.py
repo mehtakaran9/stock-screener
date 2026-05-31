@@ -20,7 +20,8 @@ from datetime import datetime
 import pandas_market_calendars as mcal
 import pytz
 
-from backend.scanner import get_full_market_tickers, screen_stocks
+from backend.scanner import get_full_market_tickers
+from backend.scanner_v2 import screen_stocks_v2  # unified scanner (Big Move + ⭐ HIGH CONVICTION)
 from backend.notifications import send_scan_results_email, _DUMMY_STOCKS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -71,7 +72,7 @@ async def main() -> int:
     logger.info(f"Starting scan of {len(target)} tickers...")
 
     results = []
-    async for update in screen_stocks(target):
+    async for update in screen_stocks_v2(target):
         if isinstance(update, dict) and update.get('status') != 'progress':
             results.append(update)
             logger.info(f"Match: {update['ticker']} ${update['price']:.2f} ({update['change']:.1f}%)")

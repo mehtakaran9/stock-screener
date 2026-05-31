@@ -1,9 +1,9 @@
 # AGENTS.md - Stock Screener Project
 
 ## What
-This project is a **Technical Stock Screener** with three complementary strategies for the S&P 500 universe. A **Recovery Scan / Big Move Scan / Conviction Scan** tab in the UI lets users switch between them. All three strategies share identical SSE streaming, caching, and result shapes.
+This project is a **Technical Stock Screener** for the S&P 500 universe with **one unified screener** (surfaced at `/api/scan-v2`): it buys panic selloffs into extreme dislocation and badges the rare, alt-data-confirmed names as ⭐ **HIGH CONVICTION**. Two earlier strategies are **deprecated/dormant** (code + endpoints kept, not surfaced in the UI or email): the Recovery Scan (v1, `/api/scan`, healthy-uptrend dips) and the standalone Conviction Scan (v3, `/api/scan-v3`). v3 is now folded into the unified scan as the HIGH CONVICTION badge (v3 ⊆ v2 — every v3 pick is already a v2 pick). All scans share identical SSE streaming, caching, and result shapes.
 
-### Recovery Scan — Core Filters (10 total, `/api/scan`)
+### Recovery Scan — Core Filters (10 total, `/api/scan`) — ⚠️ DEPRECATED / dormant (not surfaced)
 
 Strategy: **oversold mean-reversion** — buy panic selloffs in large-cap stocks with intact macro uptrends.
 Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-layer filter sweep: **70.5% 3-month win rate, +8.6% avg return** (full config, N=44). ⚠️ These figures carry **survivorship bias** — the backtest uses the *current* S&P 500 list applied to historical data (delisted/removed names excluded), so treat them as upper bounds. RVOL is measured against the prior 20 completed days (excludes the signal day).
@@ -17,7 +17,7 @@ Calibrated from 5-year S&P 500 reverse backtest (666K ticker-days) + second-laye
 - **Deep SMA50 discount**: Price ≤ 90% of SMA50 (+3.8pp win rate; validated N=59, 5-yr backtest)
 - **Sector exclusion**: Excludes Health Care, Communication Services, Utilities (+2.7pp; validated N=87)
 
-### Big Move Scanner — Core Filters (8 total, `/api/scan-v2`)
+### Big Move Scanner — Core Filters (8 total, `/api/scan-v2`) — ✅ PRIMARY (the unified scan)
 
 Strategy: **extreme dislocation recovery** — stocks already deeply below SMA200 that have an additional panic selloff day.
 Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M ticker-days): **33.32× lift, 14.56% precision for 30%+ moves in 42 trading days**. ⚠️ Same **survivorship-bias** caveat as the Recovery Scan — current-constituents-only universe inflates lift/precision; treat as upper bounds.
@@ -29,7 +29,7 @@ Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M t
 - **Extreme dislocation (SMA200)**: Price **< 70% of SMA200** — inverted from Recovery Scan's > 75%
 - **Below SMA50**: Price < 90% of SMA50
 
-### Conviction Scanner — Core Filters (10 total, `/api/scan-v3`)
+### ⭐ HIGH CONVICTION badge — Core Filters (folded into the unified scan; standalone `/api/scan-v3` dormant)
 
 Strategy: **multi-factor extreme dislocation + alt-data confirmation** — the v2 dislocation regime gated far tighter, then required to carry real-money confirmation. Very selective — empirically only a few signals per year, not per week: the tighter technical gates fired ~20× in 5½ yrs of S&P 500 backtest data (≈3–4/yr; the alt-data gate filters further), and ~60% of those went on to gain ≥ 20% within 42 trading days. Research source: `backend/conviction_research.py`.
 
@@ -42,7 +42,7 @@ Strategy: **multi-factor extreme dislocation + alt-data confirmation** — the v
 - **Extreme panic day**: candle body ≥ 1.5× ATR14
 - **Alt-data confirmation (≥ 1 required)**: insider buy in last 30d (SEC Form 4) · earnings beat streak ≥ 2 · options call anomaly (put/call < 0.5, requires `POLYGON_API_KEY`). Skips names reporting earnings within 7 days. Adds `insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score` (0–3) to the result.
 
-The Recovery gate (price > 75% of SMA200) and the Big Move / Conviction gate (price < 70% of SMA200) are mutually exclusive: a Recovery candidate can never be a Big Move or Conviction candidate. Big Move and Conviction share the same SMA200 gate — Conviction is a strict subset of Big Move with tighter thresholds plus the alt-data requirement.
+The (deprecated) Recovery gate (price > 75% of SMA200) and the unified Big Move gate (price < 70% of SMA200) are mutually exclusive. The HIGH CONVICTION badge is a **strict subset of the unified scan** (v3 ⊆ v2): a row earns the badge when it additionally clears the tighter thresholds (RVOL > 3.5×, RSI < 25, candle ≥ 1.5× ATR) **and** scores ≥ 1 on alt-data. The unified scan therefore runs the v2 filter, then annotates qualifying rows in-line — no separate scan. (A row that clears the tighter gates but reports earnings within 7 days stays an un-badged pick rather than being dropped, which is how the standalone v3 differed.)
 
 ## Why
 - **FastAPI Backend**: Chosen for its high performance and native support for asynchronous streaming (SSE), allowing users to see results in real-time without waiting for a full market scan.
@@ -64,9 +64,9 @@ The Recovery gate (price > 75% of SMA200) and the Big Move / Conviction gate (pr
     - Exposes `/api/scan-v3` — identical SSE pattern using `screen_stocks_v3()`. Results cached to `backend/scan_cache_v3.json` (10 min TTL, separate lock).
     - Exposes `/api/filters-v3` — returns the 10 active conviction filter descriptions.
 3.  **Frontend Dashboard (`frontend/src/App.tsx`)**:
-    - A **Recovery Scan / Big Move Scan / Conviction Scan** tab toggle (`switchMode()`) closes any in-progress EventSource, clears results, fetches the appropriate filter list, and routes `startScan()` to `/api/scan`, `/api/scan-v2`, or `/api/scan-v3`.
+    - A single unified view scans `/api/scan-v2` (filters from `/api/filters-v2`); `startScan()` opens one EventSource. (The earlier 3-tab `switchMode()` toggle was removed when v1 + standalone v3 were deprecated.)
     - Consumes the SSE stream and updates state reactively.
-    - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row. All scan modes return the same 27-field JSON shape (Conviction adds 4 alt-data fields, shown in a Conviction Signals panel) — `StockTable` takes `scanMode` only to label the level-3 swing entry accurately.
+    - Displays results in a sortable, expandable table (`StockTable.tsx`) with MA chips, Bollinger Band levels, and swing trade levels in the expanded row. The unified scan returns a 31-field JSON shape — the 27-field base plus 4 conviction fields (`insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score`) shown in a Conviction Signals panel; rows with `conviction_score ≥ 1` render a ⭐ HIGH CONVICTION badge.
     - Shows an amber warning banner if the S&P 500 CSV was unavailable and fallback tickers were used.
 4.  **GitHub Actions scan + email (`backend/run_scan.py`, `backend/notifications.py`)**:
     - `run_scan.py` runs as a GitHub Actions cron job (every 15 min, 11 AM–4 PM ET, Mon–Fri). It checks whether today is an NYSE trading day, runs the full scan, and calls `send_scan_results_email`.
