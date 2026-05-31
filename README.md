@@ -26,7 +26,7 @@ Switch strategies with the **Recovery Scan / Big Move Scan / Conviction Scan** t
 |---|---|---|---|---|
 | **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 70.5% 3-month win rate · +8.6% avg |
 | **Big Move Scan** (v2) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
-| **Conviction Scan** (v3) | Extreme dislocation + real-money confirmation | Day < −5%, RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, + alt-data | Price **<** 70% of SMA200 (deep distress) | ~1–2 picks/week · targets 20%+ in 42 days |
+| **Conviction Scan** (v3) | Extreme dislocation + real-money confirmation | Day < −5%, RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, + alt-data | Price **<** 70% of SMA200 (deep distress) | Rare — ~3–4 signals/yr · targets 20%+ in 42 days |
 
 > **Recovery Scan backtest** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
 >
@@ -106,7 +106,7 @@ Risk per share for each scenario is shown in the expanded row of the web UI tabl
 
 ### Conviction Scanner (v3) — multi-factor + alt-data confirmation
 
-Targets ~1–2 high-conviction picks per week: stocks in the same extreme-dislocation regime as v2 (price < 70% of SMA200) but gated far more tightly **and** required to carry real-money confirmation. A ticker must clear every technical gate **and** score ≥ 1 on alt-data. Names reporting earnings within 7 days are skipped (binary-event risk). Results stream from `/api/scan-v3`; active filters load from `/api/filters-v3`.
+Very selective — a handful of high-conviction signals per *year*, not per week: on 5½ years of S&P 500 history the technical gates triggered only ~20 times (≈3–4/yr), and the alt-data requirement filters further. In that sample ~60% went on to gain ≥ 20% within 42 trading days. These are stocks in the same extreme-dislocation regime as v2 (price < 70% of SMA200) but gated far more tightly **and** required to carry real-money confirmation. A ticker must clear every technical gate **and** score ≥ 1 on alt-data. Names reporting earnings within 7 days are skipped (binary-event risk). Results stream from `/api/scan-v3`; active filters load from `/api/filters-v3`.
 
 | # | Filter | Threshold | vs. v2 |
 |---|--------|-----------|--------|

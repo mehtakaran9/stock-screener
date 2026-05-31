@@ -9,7 +9,7 @@ FastAPI service with three stock screening strategies, SSE streaming, 10-minute 
 | `main.py` | FastAPI app — `/api/scan`, `/api/filters`, `/api/scan-v2`, `/api/filters-v2`, `/api/scan-v3`, `/api/filters-v3`, cache |
 | `scanner.py` | Recovery screener — 10-filter pipeline (price > 75% SMA200); bulk yfinance downloads, async generator |
 | `scanner_v2.py` | Big Move screener — 8-filter extreme dislocation pipeline (price < 70% SMA200); identical async generator shape |
-| `scanner_v3.py` | Conviction screener — tighter `CONFIG_V3` technical pipeline (RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, price < 70% SMA200) plus an alt-data gate (`conviction_score ≥ 1`); ~1–2 picks/week |
+| `scanner_v3.py` | Conviction screener — tighter `CONFIG_V3` technical pipeline (RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, price < 70% SMA200) plus an alt-data gate (`conviction_score ≥ 1`); very selective (~3–4 signals/yr) |
 | `notifications.py` | HTML email builder and SMTP sender |
 | `run_scan.py` | GitHub Actions entrypoint — trading-day check, recovery (v1) scan, email |
 | `utils.py` | Design tokens (colours, formatters) shared between email and web UI |

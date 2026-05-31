@@ -1,5 +1,5 @@
 """
-Conviction Screener v3 — multi-factor, ~1–2 high-conviction picks per week.
+Conviction Screener v3 — multi-factor, very selective (~3–4 signals/yr).
 
 Targets 20%+ moves in 42 trading days by stacking tight technical gates with
 real-money alt-data confirmation. A ticker must pass 8 technical filters AND

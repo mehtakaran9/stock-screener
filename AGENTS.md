@@ -31,7 +31,7 @@ Calibrated from 10-year S&P 500 backtest (`backend/bigmove_research.py`, 1.27M t
 
 ### Conviction Scanner — Core Filters (10 total, `/api/scan-v3`)
 
-Strategy: **multi-factor extreme dislocation + alt-data confirmation** — the v2 dislocation regime gated far tighter, then required to carry real-money confirmation. Targets ~1–2 high-conviction picks/week for 20%+ moves in 42 trading days. Research source: `backend/conviction_research.py`.
+Strategy: **multi-factor extreme dislocation + alt-data confirmation** — the v2 dislocation regime gated far tighter, then required to carry real-money confirmation. Very selective — empirically only a few signals per year, not per week: the tighter technical gates fired ~20× in 5½ yrs of S&P 500 backtest data (≈3–4/yr; the alt-data gate filters further), and ~60% of those went on to gain ≥ 20% within 42 trading days. Research source: `backend/conviction_research.py`.
 
 - **Panic selloff**: Day Change < −5%
 - **Liquidity**: Market Cap > $1B, Price > $5, Volume > 500K
