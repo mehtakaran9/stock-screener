@@ -14,5 +14,5 @@ polygon-api-client==1.16.0  # optional — only needed if POLYGON_API_KEY is set
 
 # dev/test only
 pytest==9.0.3
-pytest-asyncio==1.3.0
+pytest-asyncio==1.4.0
 pytest-cov==7.1.0
