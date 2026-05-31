@@ -389,3 +389,24 @@ def test_screen_v2_empty_download_retries_and_emits_progress(mock_caps, mock_dl)
         results = run_screen_v2(["AAPL"])
     progress_events = [r for r in results if isinstance(r, dict) and r.get("status") == "progress"]
     assert len(progress_events) > 0
+
+
+# ── Result shape contract ────────────────────────────────────────────────────
+# v2 returns the identical 27-field shape as v1 (README: same JSON shape).
+EXPECTED_RESULT_FIELDS = {
+    "ticker", "exchange", "price", "change", "volume", "vol_ratio", "market_cap",
+    "rsi", "macd", "macd_signal", "macd_hist",
+    "ema8", "ema20", "ema50", "ema200", "sma50", "sma200",
+    "bb_upper", "bb_middle", "bb_lower", "atr14",
+    "entry1", "entry2", "entry3", "stop1", "stop2", "stop3",
+}
+
+
+@patch("backend.scanner_v2.ta.rsi", return_value=pd.Series([25.0] * 300))
+@patch("backend.scanner_v2.ta.ema")
+def test_filter_v2_result_has_exact_27_fields(mock_ema, mock_rsi):
+    mock_ema.side_effect = mock_ema_side_effect
+    result = _filter_ticker_v2("AAPL", make_passing_df_v2(), _make_mc_v2())
+    assert result is not None
+    assert set(result.keys()) == EXPECTED_RESULT_FIELDS
+    assert len(result) == 27

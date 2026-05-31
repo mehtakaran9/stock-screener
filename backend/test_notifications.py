@@ -115,7 +115,7 @@ def test_build_html_table_swing_levels():
     result = _build_html_table([_STOCK])
     assert "Breakout" in result
     assert "EMA 8 pullback" in result
-    assert "BB midline" in result
+    assert "SMA200 test" in result
 
 
 # ── send_scan_results_email ───────────────────────────────────────────────────

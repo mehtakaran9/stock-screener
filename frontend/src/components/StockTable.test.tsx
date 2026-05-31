@@ -279,6 +279,28 @@ describe('StockTable — row expansion', () => {
   })
 })
 
+describe('StockTable — mode-aware swing level 3 label', () => {
+  it('labels level 3 "SMA200 test" in recovery mode (default)', () => {
+    render(<StockTable stocks={[makeStock()]} />)
+    fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
+    expect(screen.getByText('SMA200 test')).toBeInTheDocument()
+    expect(screen.queryByText('BB lower')).not.toBeInTheDocument()
+  })
+
+  it('labels level 3 "BB lower" in big-move mode', () => {
+    render(<StockTable stocks={[makeStock()]} scanMode="bigmove" />)
+    fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
+    expect(screen.getByText('BB lower')).toBeInTheDocument()
+    expect(screen.queryByText('SMA200 test')).not.toBeInTheDocument()
+  })
+
+  it('labels level 3 "BB lower" in conviction mode', () => {
+    render(<StockTable stocks={[makeStock({ conviction_score: 2 })]} scanMode="conviction" />)
+    fireEvent.click(screen.getByRole('link', { name: 'AAPL' }).closest('tr')!)
+    expect(screen.getByText('BB lower')).toBeInTheDocument()
+  })
+})
+
 describe('StockTable — conviction signals section', () => {
   const convictionStock = makeStock({
     insider_buys_30d: 2,

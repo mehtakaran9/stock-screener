@@ -231,7 +231,7 @@ function App() {
             )}
           </div>
           
-          <StockTable stocks={stocks} />
+          <StockTable stocks={stocks} scanMode={scanMode} />
         </div>
       </main>
 

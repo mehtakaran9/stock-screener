@@ -18,14 +18,15 @@
   </a>
 </p>
 
-A real-time technical stock screener with **two complementary strategies** for the S&P 500 universe. Scan results stream live to the browser via SSE and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
+A real-time technical stock screener with **three complementary strategies** for the S&P 500 universe. Scan results stream live to the browser via SSE and are emailed daily through a GitHub Actions cron job — no paid infrastructure required.
 
-Switch strategies with the **Recovery Scan / Big Move Scan** tab in the UI:
+Switch strategies with the **Recovery Scan / Big Move Scan / Conviction Scan** tab in the UI:
 
 | Strategy | Target setup | Key signals | SMA200 gate | Backtest |
 |---|---|---|---|---|
 | **Recovery Scan** (v1) | Panic selloff in structurally healthy stock | Day < −5%, RSI < 30, RVOL > 3.5×, EMA stack | Price **>** 75% of SMA200 (uptrend intact) | 70.5% 3-month win rate · +8.6% avg |
 | **Big Move Scan** (v2) | Panic selloff into extreme dislocation | Day < −5%, RSI < 35, RVOL > 1.5× | Price **<** 70% of SMA200 (deep distress) | 33.32× lift · 14.56% precision · +39.3% avg on 30%+ moves in 42 days |
+| **Conviction Scan** (v3) | Extreme dislocation + real-money confirmation | Day < −5%, RSI < 25, RVOL > 3.5×, candle ≥ 1.5× ATR, + alt-data | Price **<** 70% of SMA200 (deep distress) | ~1–2 picks/week · targets 20%+ in 42 days |
 
 > **Recovery Scan backtest** · 5-year S&P 500 · 666,534 ticker-days · 10-filter sweep
 >
@@ -69,7 +70,7 @@ On each scan, the screener downloads 2 years of daily OHLCV data for up to 500 S
 | 6 | RSI (14) | **< 30** | Extreme oversold / capitulation |
 | 7 | SMA 200 | **Price > 75% of SMA200** | Structural uptrend still intact — not in freefall |
 | 8 | EMA stack | **EMA20 > EMA50 > EMA200** | Macro trend aligned across all timeframes |
-| 9 | SMA 50 | **Price ≤ 90% of SMA50** | Deep discount below 50-day trend — +6.1pp win rate vs. base |
+| 9 | SMA 50 | **Price ≤ 90% of SMA50** | Deep discount below 50-day trend — +3.8pp win rate vs. base (N=59) |
 | 10 | Sector | **Excludes Health Care, Comm. Services, Utilities** | Empirically −10 to −17pp win rate on panic-selloff setups |
 
 Tickers that pass all 10 filters are surfaced in the UI as potential recovery trade candidates and emailed every 15 minutes from 11 AM to 4 PM ET on NYSE trading days. Recommended hold: **63 trading days (3 months)**.
@@ -97,11 +98,30 @@ Each result also includes computed entry / stop levels for the snap-back trade:
 
 | # | Entry | Calculation | Stop | Calculation |
 |---|-------|-------------|------|-------------|
-| ① | Buy today | current price | Tight stop | price − 1.0 × ATR14 |
-| ② | EMA8 reclaim | EMA8 value | Under EMA8 | EMA8 − 0.5 × ATR14 |
-| ③ | SMA200 test | SMA200 value | Under SMA200 | SMA200 − 0.5 × ATR14 |
+| ① | Buy today | current price | Wide stop | price − 1.5 × ATR14 |
+| ② | EMA8 reclaim | EMA8 value | Deep stop | price − 2.5 × ATR14 |
+| ③ | BB-lower | BB lower band | Hard floor | price × 0.85 (−15%) |
 
 Risk per share for each scenario is shown in the expanded row of the web UI table.
+
+### Conviction Scanner (v3) — multi-factor + alt-data confirmation
+
+Targets ~1–2 high-conviction picks per week: stocks in the same extreme-dislocation regime as v2 (price < 70% of SMA200) but gated far more tightly **and** required to carry real-money confirmation. A ticker must clear every technical gate **and** score ≥ 1 on alt-data. Names reporting earnings within 7 days are skipped (binary-event risk). Results stream from `/api/scan-v3`; active filters load from `/api/filters-v3`.
+
+| # | Filter | Threshold | vs. v2 |
+|---|--------|-----------|--------|
+| 1 | Day change | **< −5%** | same |
+| 2 | Market cap | **> $1 B** | same |
+| 3 | Price | **> $5** | same |
+| 4 | Volume | **> 500 K shares** | same |
+| 5 | RVOL | **> 3.5×** | tighter (v2: 1.5×) |
+| 6 | RSI (14) | **< 25** | tighter (v2: 35) |
+| 7 | SMA 200 | **Price < 70% of SMA200** | same (extreme dislocation) |
+| 8 | SMA 50 | **Price ≤ 90% of SMA50** | same |
+| 9 | ATR candle | **Body ≥ 1.5× ATR14** | new (extreme panic day) |
+| 10 | Alt-data | **≥ 1 of** insider buy (30d) · earnings beat streak ≥ 2 · options call anomaly (put/call < 0.5) | new |
+
+Each match adds four fields to the standard payload — `insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score` (0–3) — surfaced in the expanded row's **Conviction Signals** panel. Entry/stop levels mirror v2 (entry at price / EMA8 / BB-lower; stops 1.5× and 2.5× ATR plus a 15% hard floor). Alt-data sources are free by default — SEC EDGAR Form 4 (insider buys) and yfinance earnings — while the options put/call signal requires an optional `POLYGON_API_KEY`. Research backtest: `python3 -m backend.conviction_research`.
 
 ### Backtest calibration
 
@@ -137,7 +157,7 @@ Every matched stock returns the following fields from `/api/scan`:
 | `entry1/2/3` | Three recovery entry price levels | — |
 | `stop1/2/3` | Corresponding stop loss levels | — |
 
-> **`/api/scan-v2` returns the same 28 fields** with identical names and types. Filter thresholds differ (RSI < 35, RVOL > 1.5×, SMA200 gate inverted) but the JSON shape is identical — `StockTable` renders both without any changes.
+> **`/api/scan-v2` returns the same 27 fields** with identical names and types. Filter thresholds differ (RSI < 35, RVOL > 1.5×, SMA200 gate inverted) but the JSON shape is identical — `StockTable` renders both without any changes. **`/api/scan-v3` returns the same 27 fields plus 4 conviction fields** (`insider_buys_30d`, `earnings_beat_streak`, `options_call_anomaly`, `conviction_score`).
 
 ---
 
@@ -152,14 +172,17 @@ flowchart LR
     end
 
     subgraph render ["Render · FastAPI + Uvicorn"]
-        api["GET /api/scan · /api/filters\nGET /api/scan-v2 · /api/filters-v2"]
+        api["GET /api/scan · /api/filters\nGET /api/scan-v2 · /api/filters-v2\nGET /api/scan-v3 · /api/filters-v3"]
         scanner["scanner.py · recovery screener\nasyncio · Semaphore(5) · Queue"]
         scanner_v2["scanner_v2.py · big move screener\nasyncio · Semaphore(5) · Queue"]
-        cache[("scan_cache.json\nscan_cache_v2.json · 10-min TTL")]
+        scanner_v3["scanner_v3.py · conviction screener\nasyncio · alt-data gate"]
+        cache[("scan_cache.json\nscan_cache_v2.json\nscan_cache_v3.json · 10-min TTL")]
         api --> scanner
         api --> scanner_v2
+        api --> scanner_v3
         scanner <--> cache
         scanner_v2 <--> cache
+        scanner_v3 <--> cache
     end
 
     subgraph gha ["GitHub Actions"]
@@ -186,7 +209,7 @@ flowchart LR
 
 - **GitHub Actions** owns the scheduled scan and email. `keepalive.yml` pings Render 10 minutes before the daily scan to avoid cold-start delays. `daily-scan.yml` runs four cron entries (EDT + EST) and guards against duplicate fires on DST transition weeks via `is_nyse_trading_day()`. Recipients are stored in the `EMAIL_LIST` Actions variable and written to `backend/recipients.txt` at runtime.
 - **Render** hosts the FastAPI backend (512 MB RAM; sleeps after 15 min of inactivity). The keepalive ping ensures it is warm when the daily scan runs.
-- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. Two SSE endpoints exist: `/api/scan` for the recovery screener and `/api/scan-v2` for the big move screener; each has its own 10-minute result cache. `VITE_API_URL` wires up the Render service URL.
+- **Vercel** serves the static React build. The browser connects directly to the Render backend via SSE for real-time scan progress. Three SSE endpoints exist: `/api/scan` (recovery), `/api/scan-v2` (big move), and `/api/scan-v3` (conviction); each has its own 10-minute result cache. `VITE_API_URL` wires up the Render service URL.
 - **Tickers** are fetched from the [S&P 500 constituents CSV](https://github.com/datasets/s-and-p-500-companies) at scan time; a 10-ticker fallback list is used if the fetch fails.
 
 ---
@@ -269,7 +292,7 @@ Scan results are delivered as a dark-themed HTML email that mirrors the web UI:
 - Columns: Ticker · Price · Change % · Volume · Market Cap · RSI · MACD
 - When `full_scan=false, send_email=true` is triggered, an amber banner labels the data as a test
 
-The web UI exposes all output fields (see table above) and adds an expandable row per ticker showing MA chips, Bollinger Band levels, and the full swing trade levels table (3 scenarios: **Breakout (now) · EMA 8 pullback · BB midline dip**). The email intentionally sends only the 7 summary columns.
+The web UI exposes all output fields (see table above) and adds an expandable row per ticker showing MA chips, Bollinger Band levels, and the full swing trade levels table (3 scenarios: **Breakout (now)** · **EMA 8 pullback** · and a deep-value third level that adapts to the active strategy — **SMA200 test** in Recovery mode, **BB lower** in Big Move / Conviction mode). The email (Recovery only) intentionally sends just the 7 summary columns.
 
 ---
 

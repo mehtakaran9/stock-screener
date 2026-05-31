@@ -501,3 +501,52 @@ def test_screen_v3_empty_download_emits_progress(mock_caps, mock_dl):
         results = run_screen_v3(["AAPL"])
     progress_events = [r for r in results if isinstance(r, dict) and r.get("status") == "progress"]
     assert len(progress_events) > 0
+
+
+# ── Result shape contract ────────────────────────────────────────────────────
+# v3 technical result = the same 27 base fields; a surfaced conviction match
+# adds 4 alt-data fields = 31 total.
+EXPECTED_RESULT_FIELDS = {
+    "ticker", "exchange", "price", "change", "volume", "vol_ratio", "market_cap",
+    "rsi", "macd", "macd_signal", "macd_hist",
+    "ema8", "ema20", "ema50", "ema200", "sma50", "sma200",
+    "bb_upper", "bb_middle", "bb_lower", "atr14",
+    "entry1", "entry2", "entry3", "stop1", "stop2", "stop3",
+}
+CONVICTION_EXTRA_FIELDS = {
+    "insider_buys_30d", "earnings_beat_streak", "options_call_anomaly", "conviction_score",
+}
+
+
+@patch("backend.scanner_v3.ta.rsi")
+@patch("backend.scanner_v3.ta.ema")
+@patch("backend.scanner_v3.ta.atr")
+def test_filter_v3_technical_result_has_27_base_fields(mock_atr, mock_ema, mock_rsi):
+    mock_rsi.return_value = pd.Series([20.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_atr.return_value = pd.Series([3.0] * 300)
+    result = _filter_ticker_v3_technical("AAPL", make_passing_df_v3(), _make_mc_v3())
+    assert result is not None
+    assert set(result.keys()) == EXPECTED_RESULT_FIELDS
+    assert len(result) == 27
+
+
+@patch("yfinance.download")
+@patch("backend.scanner_v3._fetch_market_caps_bulk_async", new_callable=AsyncMock)
+@patch("backend.scanner_v3.ta.rsi")
+@patch("backend.scanner_v3.ta.ema")
+@patch("backend.scanner_v3.ta.atr")
+@patch("backend.scanner_v3._fetch_alt_data_v3")
+def test_screen_v3_surfaced_result_has_27_plus_4_fields(mock_alt, mock_atr, mock_ema, mock_rsi, mock_caps, mock_dl):
+    df = multiindex(make_passing_df_v3())
+    mock_dl.return_value = df
+    mock_caps.return_value = {"AAPL": {"market_cap": 5e9, "exchange": "NASDAQ",
+                                        "last_price": 55.0, "last_volume": None}}
+    mock_rsi.return_value = pd.Series([20.0] * 300)
+    mock_ema.side_effect = mock_ema_side_effect
+    mock_atr.return_value = pd.Series([3.0] * 300)
+    mock_alt.return_value = _passing_alt_data(score=1)
+    results = [r for r in run_screen_v3(["AAPL"]) if isinstance(r, dict) and "status" not in r]
+    assert len(results) == 1
+    assert set(results[0].keys()) == EXPECTED_RESULT_FIELDS | CONVICTION_EXTRA_FIELDS
+    assert len(results[0]) == 31

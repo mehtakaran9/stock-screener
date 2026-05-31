@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
-import type { Stock } from '../types';
+import type { Stock, ScanMode } from '../types';
 
 interface StockTableProps {
   stocks: Stock[];
+  scanMode?: ScanMode;
 }
 
 type SortKey = 'price' | 'change' | 'volume' | 'vol_ratio' | 'market_cap' | 'rsi' | 'macd_hist';
@@ -30,10 +31,14 @@ const getRsiLabel = (rsi: number) => {
   return 'Weak';
 };
 
-const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
+const StockTable: React.FC<StockTableProps> = ({ stocks, scanMode = 'recovery' }) => {
   const [sortKey, setSortKey] = useState<SortKey>('change');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // entry3 differs by strategy: recovery buys the SMA200 test; big-move/conviction
+  // buy the BB lower band. Label it accurately for the active mode.
+  const level3Label = scanMode === 'recovery' ? 'SMA200 test' : 'BB lower';
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -266,7 +271,7 @@ const StockTable: React.FC<StockTableProps> = ({ stocks }) => {
                               </tr>
                               <tr>
                                 <td>3</td>
-                                <td>BB midline dip</td>
+                                <td>{level3Label}</td>
                                 <td className="positive">${stock.entry3.toFixed(2)}</td>
                                 <td className="negative">${stock.stop3.toFixed(2)}</td>
                                 <td className="risk-cell">${risk3}</td>

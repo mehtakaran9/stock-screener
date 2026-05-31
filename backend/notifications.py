@@ -161,7 +161,7 @@ def _build_html_table(stocks_data: list, is_test: bool = False) -> str:
 
             f'<tr>'
             f'<td style="{LTD_LAST};color:{TEXT_SECONDARY};font-weight:700">3</td>'
-            f'<td style="{LTD_LAST}">BB midline dip</td>'
+            f'<td style="{LTD_LAST}">SMA200 test</td>'
             f'<td style="{LTD_LAST};color:{SUCCESS}">${entry3:.2f}</td>'
             f'<td style="{LTD_LAST};color:{DANGER}">${stop3:.2f}</td>'
             f'<td style="{LTD_LAST};color:{TEXT_SECONDARY}">${risk3:.2f}</td>'

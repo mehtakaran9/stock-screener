@@ -718,3 +718,26 @@ def test_filter_ticker_unexpected_exception_returns_none(mock_rsi, mock_caps, mo
     mock_rsi.side_effect = RuntimeError("unexpected failure mid-filter")
     results = [r for r in run_screen(["AAPL"]) if isinstance(r, dict) and "status" not in r]
     assert results == []
+
+
+# ── Result shape contract ────────────────────────────────────────────────────
+# The result dict has exactly these 27 fields — matches the README API output
+# table and the frontend `Stock` interface (types.ts). Pinning the set guards
+# against silent field drift (a stale doc once claimed "28 fields").
+EXPECTED_RESULT_FIELDS = {
+    "ticker", "exchange", "price", "change", "volume", "vol_ratio", "market_cap",
+    "rsi", "macd", "macd_signal", "macd_hist",
+    "ema8", "ema20", "ema50", "ema200", "sma50", "sma200",
+    "bb_upper", "bb_middle", "bb_lower", "atr14",
+    "entry1", "entry2", "entry3", "stop1", "stop2", "stop3",
+}
+
+
+@patch("backend.scanner.ta.rsi", return_value=pd.Series([22.0] * 300))
+@patch("backend.scanner.ta.ema")
+def test_filter_ticker_result_has_exact_27_fields(mock_ema, mock_rsi):
+    mock_ema.side_effect = mock_ema_side_effect
+    result = _filter_ticker("AAPL", make_passing_df(), _make_mc())
+    assert result is not None
+    assert set(result.keys()) == EXPECTED_RESULT_FIELDS
+    assert len(result) == 27
