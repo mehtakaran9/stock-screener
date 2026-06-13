@@ -13,6 +13,6 @@ pytz==2026.2
 polygon-api-client==1.16.3  # optional — only needed if POLYGON_API_KEY is set
 
 # dev/test only
-pytest==9.0.3
+pytest==9.1.0
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
